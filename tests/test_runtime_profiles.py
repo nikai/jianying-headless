@@ -193,7 +193,7 @@ class M5CreationBoundary(unittest.TestCase):
         from pathlib import Path
         from unittest.mock import patch
         work = ROOT / 'work/m5-scope-fix'
-        work.mkdir(exist_ok=True)
+        work.mkdir(parents=True, exist_ok=True)
         for label, plan in self.bad_plans():
             with self.subTest(label=label), tempfile.TemporaryDirectory(dir=work) as name:
                 folder = Path(name)
@@ -201,9 +201,11 @@ class M5CreationBoundary(unittest.TestCase):
                 raw = json.dumps(plan).encode(); (folder / 'plan.json').write_bytes(raw)
                 record = {'schema': 'jy14-headless-build/v1', 'blueprint_sha256': self.j.BLUEPRINT_SHA,
                           'runtime_manifest': self.j.nd.MANIFEST_SHA, 'runtime_profile': self.profile,
+                          'runtime': {'libvideoeditor_sha256': profiles.PROFILES['11.6.0']},
                           'plan_sha256': self.j.nd.digest(folder / 'plan.json'), 'files': {}, 'assets': [self.asset]}
                 (folder / 'build.json').write_text(json.dumps(record))
-                with patch.object(self.j.nd, 'doctor', return_value={'runtime_profile': self.profile}), \
+                with patch.object(self.j.nd, 'doctor', return_value={'runtime_profile': self.profile,
+                        'libvideoeditor_sha256': profiles.PROFILES['11.6.0']}), \
                         patch.object(self.j.nd, 'helper') as helper:
                     for operation in (self.j.verify_build, self.j.verify_live):
                         with self.assertRaises(ValueError): operation(folder)
@@ -233,6 +235,59 @@ class M5CreationBoundary(unittest.TestCase):
             with self.subTest(field=field), self.assertRaisesRegex(ValueError, 'M5 keyframes'):
                 self.j.verify_structure(actual, {}, self.plan, [self.asset], Path('/unused'),
                                         runtime_profile=self.profile)
+
+
+class BuildRuntimeProvenance(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        import jy14_headless as j
+        self.j = j
+        work = ROOT / 'work/m5-review-r1-fix'
+        work.mkdir(parents=True, exist_ok=True)
+        temporary = tempfile.TemporaryDirectory(dir=work)
+        self.addCleanup(temporary.cleanup)
+        self.folder = Path(temporary.name)
+        self.runtime = {'runtime_profile': profiles.M5_PROFILE,
+                        'libvideoeditor_sha256': profiles.PROFILES['11.6.0']}
+        self.record = {'runtime_profile': profiles.M5_PROFILE, 'runtime': dict(self.runtime)}
+
+    def test_matching_library_is_accepted_but_matching_profile_alone_is_not(self):
+        self.j.validate_build_runtime(self.record, self.runtime)
+        with self.assertRaisesRegex(ValueError, 'Build runtime differs'):
+            self.j.validate_build_runtime(dict(self.record, runtime_profile='other'), self.runtime)
+
+    def test_old_missing_and_unknown_library_are_rejected_by_all_three_operations(self):
+        from copy import deepcopy
+        from unittest.mock import patch
+        variants = [
+            {'libvideoeditor_sha256': 'a490d9a08b71a2d9af138d24528d3d40d65b37b06911627c53a2915c6cac0754'},
+            {'libvideoeditor_sha256': '0' * 64}, {}, None,
+        ]
+        for captured in variants:
+            record = deepcopy(self.record); record['runtime'] = captured
+            (self.folder / 'build.json').write_text(json.dumps(record))
+            with self.subTest(captured=captured), patch.object(self.j.nd, 'doctor', return_value=self.runtime), \
+                    patch.object(self.j.nd, 'helper') as helper:
+                operations = [lambda: self.j.verify_build(self.folder),
+                              lambda: self.j.verify_live(self.folder),
+                              lambda: self.j.publish(self.folder, self.folder / 'audit')]
+                for operation in operations:
+                    with self.assertRaisesRegex(ValueError, 'Build editor library differs'):
+                        operation()
+                helper.assert_not_called()
+                self.assertFalse((self.folder / 'audit').exists())
+
+    def test_publish_rechecks_library_after_the_build_verifier(self):
+        from unittest.mock import Mock, patch
+        # Even an injected verifier cannot skip the fresh signed-runtime check.
+        helper = Mock()
+        helper._validate_runtime_environment.return_value = dict(self.runtime, libvideoeditor_sha256='f' * 64)
+        with patch.object(self.j.nd, 'helper', return_value=helper):
+            with self.assertRaisesRegex(ValueError, 'Build editor library differs'):
+                self.j.publish(self.folder, self.folder / 'audit', verify_build_fn=lambda _: self.record)
+        helper._ensure_editor_closed.assert_not_called()
+        helper._acquire_directory_transaction_lock.assert_not_called()
+        self.assertFalse((self.folder / 'audit').exists())
 
 
 if __name__=='__main__':

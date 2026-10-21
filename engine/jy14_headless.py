@@ -611,15 +611,26 @@ def verify_structure(timeline, metadata, plan, assets, target, allow_native_reso
     return native_resource_bindings
 
 
+def validate_build_runtime(record, runtime):
+    require(record.get('runtime_profile') == runtime['runtime_profile'],
+            'Build runtime differs; create a fresh isolated build with the current profile')
+    captured = record.get('runtime')
+    require(isinstance(captured, dict) and bool(runtime.get('libvideoeditor_sha256'))
+            and captured.get('libvideoeditor_sha256') == runtime['libvideoeditor_sha256'],
+            'Build editor library differs; create a fresh isolated build with the current library')
+
+
 def verify_build(out):
     out = Path(out).resolve(strict=True)
     record = read_json(out / 'build.json')
+    environment = nd.doctor()
+    validate_build_runtime(record, environment)
     require(record['schema'] == 'jy14-headless-build/v1' and record['blueprint_sha256'] == BLUEPRINT_SHA
             and record['runtime_manifest'] == nd.MANIFEST_SHA, 'Build version or provenance differs')
     require(nd.digest(out / 'plan.json') == record['plan_sha256'], 'Plan changed after build')
     require(files_manifest(out / 'draft') == record['files'], 'Built draft changed')
     plan = read_json(out / 'plan.json')
-    runtime = nd.doctor()['runtime_profile']
+    runtime = environment['runtime_profile']
     if runtime == M5_PROFILE:
         validate_plan(plan, runtime)
     validate_creation_plan(plan, record.get('runtime_profile'), record['assets'])
@@ -700,8 +711,7 @@ def publish(out, audit, resume=False, verify_build_fn=None, verify_live_fn=None)
     record = verify_build_fn(out)
     h = nd.helper()
     runtime = h._validate_runtime_environment()
-    require(record.get('runtime_profile') == runtime['runtime_profile'],
-            'Build runtime differs; create a fresh isolated build with the current profile')
+    validate_build_runtime(record, runtime)
     h._ensure_editor_closed(True)
     target = Path(record['target'])
     require(target.parent == nd.DRAFT_ROOT and not target.is_symlink(), 'Invalid new-draft target')
@@ -815,11 +825,13 @@ def publish(out, audit, resume=False, verify_build_fn=None, verify_live_fn=None)
 def verify_live(out):
     out = Path(out).resolve(strict=True)
     record = read_json(out / 'build.json')
+    environment = nd.doctor()
+    validate_build_runtime(record, environment)
     require(record.get('runtime_manifest') == nd.MANIFEST_SHA and record.get('blueprint_sha256') == BLUEPRINT_SHA,
             'Build provenance changed')
     plan = read_json(out / 'plan.json')
     require(nd.digest(out / 'plan.json') == record['plan_sha256'], 'Plan changed')
-    runtime = nd.doctor()['runtime_profile']
+    runtime = environment['runtime_profile']
     if runtime == M5_PROFILE:
         validate_plan(plan, runtime)
     validate_creation_plan(plan, record.get('runtime_profile'), record['assets'])
@@ -832,7 +844,7 @@ def verify_live(out):
     require(timeline['id'] == record['timeline_id'] and metadata['draft_id'] == record['draft_id'], 'Draft identity changed')
     native_resource_bindings = verify_structure(timeline, metadata, plan, record['assets'], target,
                                                allow_native_resource_cache=True,
-                                               runtime_profile=nd.doctor()['runtime_profile'],
+                                               runtime_profile=runtime,
                                                font_assets=font_assets or ())
     project = read_json(target / 'Timelines/project.json')
     require(project['main_timeline_id'] == timeline['id'], 'Project/timeline reference changed')

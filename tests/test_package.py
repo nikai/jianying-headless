@@ -46,18 +46,29 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_standalone_default_checkout_works_without_gui_environment(self):
-        entry = self.folder / 'standalone.py'
-        shutil.copyfile(ENTRY, entry)
-        home = self.folder / 'home'
-        checkout = home / 'repos/third-party/jianying-headless'
-        checkout.mkdir(parents=True)
-        shutil.copyfile(ROOT / 'project.json', checkout / 'project.json')
-        shutil.copytree(ROOT / 'engine', checkout / 'engine', ignore=shutil.ignore_patterns('__pycache__'))
-        result = subprocess.run([sys.executable, str(entry), '--help'],
-                                env={'HOME': str(home), 'PATH': '/usr/bin:/bin'},
-                                cwd=self.folder, capture_output=True, text=True, timeout=30)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('verify-build', result.stdout)
+        with tempfile.TemporaryDirectory(prefix='jianying-standalone-') as name:
+            external = Path(name).resolve()
+            self.assertNotIn(ROOT, external.parents)
+            self.assertFalse(any((parent / 'project.json').exists() for parent in (external, *external.parents)))
+            entry = external / 'standalone.py'
+            shutil.copyfile(ENTRY, entry)
+            home = external / 'home'
+            checkout = home / 'repos/third-party/jianying-headless'
+            checkout.mkdir(parents=True)
+            shutil.copyfile(ROOT / 'project.json', checkout / 'project.json')
+            shutil.copytree(ROOT / 'engine', checkout / 'engine', ignore=shutil.ignore_patterns('__pycache__'))
+            command = [sys.executable, str(entry), '--help']
+            environment = {'HOME': str(home), 'PATH': '/usr/bin:/bin'}
+            result = subprocess.run(command, env=environment, cwd=external,
+                                    capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('verify-build', result.stdout)
+            # Removing only the default marker must make this same invocation fail.
+            (checkout / 'project.json').unlink()
+            missing = subprocess.run(command, env=environment, cwd=external,
+                                     capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(missing.returncode, 0)
+            self.assertIn('checkout unavailable', missing.stderr)
 
     def test_local_entry_rejects_all_unreviewed_commands(self):
         for command in ('edit', 'export', 'ui-export', 'create', 'resume-publish',

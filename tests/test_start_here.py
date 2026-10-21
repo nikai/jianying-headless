@@ -43,6 +43,9 @@ class FirstDraftTests(unittest.TestCase):
         self.assertEqual([t['type'] for t in plan['tracks']], ['video', 'text'])
         self.assertEqual(plan['tracks'][0]['segments'][0]['source'], str(self.source))
         self.assertTrue(all(t['segments'][0]['duration_us'] == 2000000 for t in plan['tracks']))
+        from runtime_profiles import M5_PROFILE, validate_creation_plan
+        validate_creation_plan(plan, M5_PROFILE)
+        self.assertNotIn('volume', plan['tracks'][0]['segments'][0])
 
     def test_unsupported_media_is_rejected_not_transcoded(self):
         for change in ({'codec_name': 'hevc'}, {'pix_fmt': 'yuv420p10le'},
@@ -84,7 +87,11 @@ class FirstDraftTests(unittest.TestCase):
             self.assertFalse(result['draft_registered'])
             self.assertFalse(result['video_exported'])
             self.assertEqual(start.shlex.split(result['commands']['publish'])[2], 'publish')
-            self.assertIn(result['commands']['export'], (job / 'next-steps.md').read_text())
+            self.assertEqual(set(result['commands']), {'publish', 'verify'})
+            notes = (job / 'next-steps.md').read_text()
+            for command in result['commands'].values():
+                self.assertIn(command, notes)
+            self.assertNotIn(' export ', notes)
         self.assertEqual(self.source.read_bytes(), b'unit test bytes')
 
 

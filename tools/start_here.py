@@ -132,7 +132,7 @@ def make_plan(source, data, name):
             'canvas': {'width': width, 'height': height, 'fps': 30},
             'tracks': [
                 {'type': 'video', 'name': '原视频', 'segments': [
-                    {'source': str(source), 'start_us': 0, 'duration_us': 2000000, 'volume': 1}]},
+                    {'source': str(source), 'start_us': 0, 'duration_us': 2000000}]},
                 {'type': 'text', 'name': '可编辑文字', 'segments': [
                     {'text': '我的第一个可编辑草稿', 'start_us': 0, 'duration_us': 2000000,
                      'size': 8, 'y': -0.65, 'color': '#FFFFFF', 'border_color': '#000000', 'border_width': .05}]}]}
@@ -171,15 +171,13 @@ def build(raw):
     commands = {
         'publish': [sys.executable, str(ENTRY), 'publish', '--build', str(job / 'build'), '--audit', str(job / 'publish-audit')],
         'verify': [sys.executable, str(ENTRY), 'verify', '--build', str(job / 'build'), '--report', str(job / 'after-native-save.json')],
-        'export': [sys.executable, str(ENTRY), 'export', '--build', str(job / 'build'), '--out', str(job / 'export')],
     }
     report = {'status': 'build-verified', 'name': plan['name'], 'build': str(job / 'build'),
               'source_unchanged': True, 'draft_registered': False, 'video_exported': False,
               'commands': {key: shlex.join(value) for key, value in commands.items()}}
     (job / 'next-steps.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
     labels = {'publish': '保存工作并完全退出剪映后，登记到本机首页',
-              'verify': '打开播放、保存退出、冷重开检查，再次退出后回读',
-              'export': '可选：导出最初构建的快照，不包含后来手工修改'}
+              'verify': '打开播放、保存退出、冷重开检查，再次退出后回读'}
     notes = '# ' + plan['name'] + '\n'
     for key, label in labels.items():
         notes += '\n## ' + label + '\n\n```bash\n' + report['commands'][key] + '\n```\n'
@@ -188,7 +186,6 @@ def build(raw):
     print('\n尚未写入剪映首页。保存工作并完全退出剪映后，再复制执行下面这一行：\n' +
           report['commands']['publish'])
     print('\n打开、播放、保存、退出并冷重开检查后，再次退出剪映，执行：\n' + report['commands']['verify'])
-    print('\n可选：需要 MP4 时导出最初快照（不含后续手工修改）：\n' + report['commands']['export'])
     print('\n以上可复制命令也保存在：' + str(job / 'next-steps.md'))
     return 0
 

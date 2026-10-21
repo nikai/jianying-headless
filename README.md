@@ -37,7 +37,7 @@ python3 skills/yichen-jianying-edit/scripts/headless_draft.py doctor
 ```
 
 用已授权的本地 H.264 素材编写计划，格式参考
-[计划说明](skills/yichen-jianying-edit/references/headless-macos.md)，其中高级功能不在本地适配范围内。
+[计划说明](skills/yichen-jianying-edit/references/headless-macos.md)，该页仅描述当前 M5 基础能力。
 普通字幕可用 `text`、`size`、`x`、`y`、`color`、`border_color`、`border_width`；
 视频只用 `source`、原片裁切与目标时间字段。
 
