@@ -136,13 +136,18 @@ class M5CreationBoundary(unittest.TestCase):
                      'tracks': [{'type': 'video', 'segments': [
                          {'source': '/unused/source.mp4', 'duration_us': 4000000}]},
                          {'type': 'text', 'segments': [{'text': '字幕', 'duration_us': 4000000}]}]}
-        self.asset = {'kind': 'video', 'media_type': 'video', 'codec': 'h264'}
+        self.asset = {'kind': 'video', 'media_type': 'video', 'codec': 'h264',
+                      'pix_fmt': 'yuv420p', 'audio_codec': 'aac', 'has_audio': True,
+                      'r_frame_rate': '30/1', 'width': 1280, 'height': 720, 'duration_us': 4000000}
 
     def test_plain_video_and_subtitle_are_accepted(self):
         profiles.validate_creation_plan(self.plan, self.profile, [self.asset])
 
     def bad_plans(self):
         from copy import deepcopy
+        for canvas in ({'width': 1920}, {'height': 1080}, {'fps': 24}, {'fps': 25}, {'fps': 50}, {'fps': 60}):
+            bad = deepcopy(self.plan); bad['canvas'].update(canvas)
+            yield 'canvas/' + str(canvas), bad
         for kind in ('audio', 'filter', 'effect', 'compound'):
             bad = deepcopy(self.plan); bad['tracks'][1]['type'] = kind
             yield kind, bad
@@ -177,6 +182,75 @@ class M5CreationBoundary(unittest.TestCase):
                        {'codec': 'hevc'}):
             with self.subTest(fields=fields), self.assertRaises(ValueError):
                 profiles.validate_creation_plan(self.plan, self.profile, [dict(self.asset, **fields)])
+
+    def test_main_build_rejects_unreviewed_media_before_output(self):
+        from unittest.mock import patch
+        for fields in ({'pix_fmt': 'yuvj420p'}, {'pix_fmt': 'yuv420p10le'}, {'pix_fmt': None},
+                       {'audio_codec': 'mp3'}, {'audio_codec': 'pcm_s16le'}, {'audio_codec': None},
+                       {'has_audio': False}, {'width': 1920}, {'height': 1080}, {'r_frame_rate': '25/1'}):
+            with self.subTest(fields=fields), patch.object(self.j.nd, 'doctor', return_value={'runtime_profile': self.profile}), \
+                    patch.object(self.j, 'read_json', return_value=self.plan), \
+                    patch.object(self.j, 'regular_file', return_value=Path('/unused/source.mp4')), \
+                    patch.object(self.j, 'probe', return_value=dict(self.asset, **fields)), \
+                    patch.object(self.j.nd, 'fresh_directory') as output:
+                with self.assertRaisesRegex(ValueError, 'M5 reviewed media'):
+                    self.j.build('unused', 'unused')
+                output.assert_not_called()
+
+    def plain_timeline(self):
+        target = Path('/unused/Joker-m5-boundary')
+        source = self.plan['tracks'][0]['segments'][0]['source']
+        asset = dict(self.asset, source=source, sha256='a' * 64, size=10,
+                     local_id='media-local-id', relative='Resources/source.mp4')
+        timeline, _ = self.j.timeline_for(self.plan, {source: asset}, target, 'timeline-id', self.j.blueprint())
+        metadata = {'draft_fold_path': str(target), 'draft_name': target.name,
+                    'draft_materials': [{'type': 0, 'value': [self.j.library_record(asset, target, 0)]}]}
+        return timeline, metadata, [asset], target
+
+    def test_plain_timeline_passes_structure_before_and_after_save(self):
+        from copy import deepcopy
+        timeline, metadata, assets, target = self.plain_timeline()
+        self.assertTrue(timeline['materials']['speeds'])
+        self.assertTrue(timeline['materials']['material_animations'])
+        self.assertTrue(timeline['materials']['texts'])
+        for schema in ('185.0.0', '189.0.0'):
+            for explicit in (True, False):
+                actual = deepcopy(timeline); actual['new_version'] = schema
+                for track in actual['tracks']:
+                    for segment in track['segments']:
+                        if explicit:
+                            segment['clip']['alpha'] = 1; segment['visible'] = True
+                        else:
+                            segment['clip'].pop('alpha', None); segment.pop('visible', None)
+                with self.subTest(schema=schema, explicit=explicit):
+                    self.assertEqual(self.j.verify_structure(actual, metadata, self.plan, assets, target,
+                                                            runtime_profile=self.profile), [])
+
+    def test_hidden_or_transparent_video_and_text_are_rejected(self):
+        from copy import deepcopy
+        timeline, metadata, assets, target = self.plain_timeline()
+        for ti in (0, 1):
+            for field, value in [('alpha', 0), ('alpha', 0.5), ('alpha', True), ('alpha', '1'),
+                                 ('alpha', float('nan')), ('visible', False), ('visible', 1), ('visible', None)]:
+                actual = deepcopy(timeline); segment = actual['tracks'][ti]['segments'][0]
+                (segment['clip'] if field == 'alpha' else segment)[field] = value
+                with self.subTest(track=ti, field=field, value=value), self.assertRaisesRegex(ValueError, 'M5 (clip alpha|segment must remain visible)'):
+                    self.j.verify_structure(actual, metadata, self.plan, assets, target, runtime_profile=self.profile)
+
+    def test_legacy_record_media_facts_are_bound_to_unchanged_bytes_in_memory(self):
+        from unittest.mock import patch
+        from copy import deepcopy
+        source = self.plan['tracks'][0]['segments'][0]['source']
+        actual = dict(self.asset, source=source, sha256='a' * 64)
+        recorded = {key: value for key, value in actual.items() if key not in {'pix_fmt', 'audio_codec', 'r_frame_rate'}}
+        untouched = deepcopy(recorded)
+        with patch.object(self.j, 'validate_plan', return_value=({source: actual}, 4000000, {})):
+            enriched = self.j.verified_plan_assets(self.plan, [recorded], self.profile)
+            self.assertEqual(enriched[0], actual)
+            self.assertEqual(recorded, untouched)
+            for bad in (dict(recorded, sha256='b' * 64), dict(recorded, pix_fmt='yuv420p10le')):
+                with self.assertRaisesRegex(ValueError, 'Recorded (source media changed|media facts differ)'):
+                    self.j.verified_plan_assets(self.plan, [bad], self.profile)
 
     def test_edit_inspection_and_both_verifiers_refuse_before_draft_access(self):
         from unittest.mock import patch

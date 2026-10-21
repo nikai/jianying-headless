@@ -152,7 +152,9 @@ def probe(path):
             'decoded_duration_us': None if media_type == 'photo' else round(duration * MICROS),
             'media_type': media_type,
             'width': stream.get('width', 0), 'height': stream.get('height', 0),
-            'codec': stream['codec_name'], 'has_audio': bool(audio)}
+            'codec': stream['codec_name'], 'has_audio': bool(audio),
+            'pix_fmt': stream.get('pix_fmt'), 'r_frame_rate': stream.get('r_frame_rate'),
+            'audio_codec': audio[0].get('codec_name') if audio else None}
 
 
 def blueprint():
@@ -508,6 +510,9 @@ def verify_structure(timeline, metadata, plan, assets, target, allow_native_reso
             for segment in track['segments']:
                 require(not segment.get('common_keyframes') and not segment.get('keyframe_refs'),
                         'M5 keyframes are unreviewed')
+                alpha = segment.get('clip', {}).get('alpha', 1)
+                require(type(alpha) in (int, float) and alpha == 1, 'M5 clip alpha must remain 1')
+                require(segment.get('visible', True) is True, 'M5 segment must remain visible')
     require(all(timeline['canvas_config'][k] == plan['canvas'][k] for k in ('width', 'height')), 'Canvas changed')
     require(timeline.get('fps', 30) == plan['canvas']['fps'], 'Timeline frame rate changed')
     require(metadata['draft_fold_path'] == str(target) and metadata['draft_name'] == target.name, 'Draft identity mismatch')
@@ -620,6 +625,25 @@ def validate_build_runtime(record, runtime):
             'Build editor library differs; create a fresh isolated build with the current library')
 
 
+def verified_plan_assets(plan, recorded, runtime_profile):
+    if runtime_profile != M5_PROFILE:
+        return recorded
+    probed, _, _ = validate_plan(plan, runtime_profile)
+    verified = []
+    for asset in recorded:
+        actual = probed.get(str(Path(asset['source']).resolve()))
+        require(actual is not None and actual['sha256'] == asset['sha256'], 'Recorded source media changed')
+        # Older local trial records lack these facts. Bind the in-memory facts
+        # to identical source bytes; never rewrite their build.json or draft.
+        merged = dict(asset)
+        for key in ('pix_fmt', 'r_frame_rate', 'audio_codec', 'has_audio', 'width', 'height'):
+            require(key not in asset or asset[key] == actual[key], 'Recorded media facts differ: ' + key)
+            merged[key] = actual[key]
+        verified.append(merged)
+    validate_creation_plan(plan, runtime_profile, verified)
+    return verified
+
+
 def verify_build(out):
     out = Path(out).resolve(strict=True)
     record = read_json(out / 'build.json')
@@ -631,16 +655,14 @@ def verify_build(out):
     require(files_manifest(out / 'draft') == record['files'], 'Built draft changed')
     plan = read_json(out / 'plan.json')
     runtime = environment['runtime_profile']
-    if runtime == M5_PROFILE:
-        validate_plan(plan, runtime)
-    validate_creation_plan(plan, record.get('runtime_profile'), record['assets'])
+    assets = verified_plan_assets(plan, record['assets'], runtime)
     target = nd.DRAFT_ROOT / plan['name']
     require(record['target'] == str(target), 'Build target is not the planned direct-child draft')
     h = nd.helper()
     timeline = h._decrypt_metadata_in_memory(out / 'draft/draft_info.json')
     metadata = h._decrypt_metadata_in_memory(out / 'draft/draft_meta_info.json')
     font_assets = fonts.recorded_assets(record, plan)
-    verify_structure(timeline, metadata, plan, record['assets'], target,
+    verify_structure(timeline, metadata, plan, assets, target,
                      runtime_profile=runtime, font_assets=font_assets or ())
     if font_assets is not None:
         fonts.verify_assets(font_assets, timeline, target, out / 'draft')
@@ -832,9 +854,7 @@ def verify_live(out):
     plan = read_json(out / 'plan.json')
     require(nd.digest(out / 'plan.json') == record['plan_sha256'], 'Plan changed')
     runtime = environment['runtime_profile']
-    if runtime == M5_PROFILE:
-        validate_plan(plan, runtime)
-    validate_creation_plan(plan, record.get('runtime_profile'), record['assets'])
+    assets = verified_plan_assets(plan, record['assets'], runtime)
     font_assets = fonts.recorded_assets(record, plan)
     target = nd.DRAFT_ROOT / plan['name']
     require(str(target) == record['target'] and target.is_dir() and not target.is_symlink(), 'Invalid target directory')
@@ -842,7 +862,7 @@ def verify_live(out):
     timeline = h._decrypt_metadata_in_memory(target / 'draft_info.json')
     metadata = h._decrypt_metadata_in_memory(target / 'draft_meta_info.json')
     require(timeline['id'] == record['timeline_id'] and metadata['draft_id'] == record['draft_id'], 'Draft identity changed')
-    native_resource_bindings = verify_structure(timeline, metadata, plan, record['assets'], target,
+    native_resource_bindings = verify_structure(timeline, metadata, plan, assets, target,
                                                allow_native_resource_cache=True,
                                                runtime_profile=runtime,
                                                font_assets=font_assets or ())

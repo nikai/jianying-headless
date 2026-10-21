@@ -20,6 +20,8 @@ python3 /absolute/path/to/yichen-jianying-edit/scripts/headless_draft.py doctor
 这是本机适配，不是任意 Mac 或同版本安装包的兼容承诺。
 
 只开放 `doctor/build/verify-build/publish/verify`，支持 H.264 视频与普通字幕。
+素材限 1280×720、30 fps、yuv420p 与内嵌 AAC；画布固定为 1280×720、30 fps。
+回读检查默认透明度 1 和可见性 true，其他变体不在已验范围。
 关闭编辑、资源特效、字体动画、复合片段、独立音效与所有导出。
 旧库 build 13281 / `a490d9a0…` 的历史结论不随版本号迁移。
 详见 [SKILL.md](SKILL.md)。Skill 与核心源码须匹配，不能跳过固定哈希校验。

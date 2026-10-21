@@ -24,7 +24,8 @@ class FirstDraftTests(unittest.TestCase):
         self.source = self.folder / "真实 素材's.mp4"
         self.source.write_bytes(b'unit test bytes')
         self.media = {'streams': [{'codec_type': 'video', 'codec_name': 'h264',
-            'pix_fmt': 'yuv420p', 'width': 1080, 'height': 1920, 'duration': '6.033333'}]}
+            'pix_fmt': 'yuv420p', 'width': 1280, 'height': 720, 'r_frame_rate': '30/1', 'duration': '6.033333'},
+            {'codec_type': 'audio', 'codec_name': 'aac'}]}
 
     def test_drag_paths_and_literal_spaces(self):
         self.assertEqual(start.parse_source(str(self.source)), self.source)
@@ -39,7 +40,7 @@ class FirstDraftTests(unittest.TestCase):
 
     def test_plan_is_real_media_and_editable_text_without_cache_resources(self):
         plan = start.make_plan(self.source, self.media, 'example')
-        self.assertEqual(plan['canvas'], {'width': 1080, 'height': 1920, 'fps': 30})
+        self.assertEqual(plan['canvas'], {'width': 1280, 'height': 720, 'fps': 30})
         self.assertEqual([t['type'] for t in plan['tracks']], ['video', 'text'])
         self.assertEqual(plan['tracks'][0]['segments'][0]['source'], str(self.source))
         self.assertTrue(all(t['segments'][0]['duration_us'] == 2000000 for t in plan['tracks']))
@@ -48,7 +49,8 @@ class FirstDraftTests(unittest.TestCase):
         self.assertNotIn('volume', plan['tracks'][0]['segments'][0])
 
     def test_unsupported_media_is_rejected_not_transcoded(self):
-        for change in ({'codec_name': 'hevc'}, {'pix_fmt': 'yuv420p10le'},
+        for change in ({'codec_name': 'hevc'}, {'pix_fmt': 'yuv420p10le'}, {'pix_fmt': 'yuvj420p'},
+                       {'width': 1920}, {'height': 1080}, {'r_frame_rate': '25/1'},
                        {'duration': '1.9'}, {'duration': 'NaN'}, {'duration': 'inf'}, {'width': 1079},
                        {'width': 9000}, {'tags': {'rotate': '90'}},
                        {'side_data_list': [{'rotation': -90}]}):
@@ -56,6 +58,14 @@ class FirstDraftTests(unittest.TestCase):
             data['streams'][0].update(change)
             with self.subTest(change=change), self.assertRaises(ValueError):
                 start.make_plan(self.source, data, 'example')
+
+    def test_audio_must_match_the_verified_aac_input(self):
+        for codec in ('mp3', 'pcm_s16le', None):
+            data = deepcopy(self.media); data['streams'][1]['codec_name'] = codec
+            with self.subTest(codec=codec), self.assertRaisesRegex(ValueError, 'M5 reviewed media'):
+                start.make_plan(self.source, data, 'example')
+        with self.assertRaisesRegex(ValueError, 'M5 reviewed media'):
+            start.make_plan(self.source, {'streams': self.media['streams'][:1]}, 'example')
 
     def test_multiple_video_streams_rejected(self):
         self.media['streams'].append(deepcopy(self.media['streams'][0]))

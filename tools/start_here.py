@@ -22,7 +22,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'engine'))
 sys.path.insert(0, str(ROOT / 'tools'))
-from runtime_profiles import validate_identity
+from runtime_profiles import validate_identity, validate_creation_plan, M5_PROFILE
 from build_toolchain import select_toolchain
 
 APP = Path('/Applications/VideoFusion-macOS.app')
@@ -128,7 +128,7 @@ def make_plan(source, data, name):
     width, height = video['width'], video['height']
     if any(type(n) is not int or n < 16 or n > 7680 or n % 2 for n in (width, height)):
         raise ValueError('首次示例要求宽高为 16–7680 范围内的偶数。')
-    return {'schema': 'jy14-headless-plan/v1', 'name': name,
+    plan = {'schema': 'jy14-headless-plan/v1', 'name': name,
             'canvas': {'width': width, 'height': height, 'fps': 30},
             'tracks': [
                 {'type': 'video', 'name': '原视频', 'segments': [
@@ -136,6 +136,12 @@ def make_plan(source, data, name):
                 {'type': 'text', 'name': '可编辑文字', 'segments': [
                     {'text': '我的第一个可编辑草稿', 'start_us': 0, 'duration_us': 2000000,
                      'size': 8, 'y': -0.65, 'color': '#FFFFFF', 'border_color': '#000000', 'border_width': .05}]}]}
+    validate_creation_plan(plan, M5_PROFILE, [
+        {'kind': 'video', 'media_type': 'video', 'codec': video.get('codec_name'),
+         'pix_fmt': video.get('pix_fmt'), 'width': width, 'height': height,
+         'r_frame_rate': video.get('r_frame_rate'), 'has_audio': bool(audios),
+         'audio_codec': audios[0].get('codec_name') if audios else None}])
+    return plan
 
 
 def build(raw):
@@ -145,7 +151,7 @@ def build(raw):
     if raw is None:
         if not sys.stdin.isatty():
             raise ValueError('非交互运行需提供 --source 视频路径。')
-        raw = input('将一个至少 2 秒的 H.264 视频拖到终端，然后按回车：\n')
+        raw = input('将一个至少 2 秒的 1280x720 / 30 fps H.264/yuv420p + AAC 视频拖到终端，然后按回车：\n')
     source = parse_source(raw)
     probe = run(['ffprobe', '-v', 'error', '-show_streams', '-show_format', '-of', 'json', str(source)])
     if probe.returncode:
@@ -195,7 +201,7 @@ def main():
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('check', help='只读检查安装前提，不安装或修改系统')
     draft = sub.add_parser('build', help='从真实视频生成两秒草稿，不登记首页或导出')
-    draft.add_argument('--source', help='本地视频；省略后交互拖入')
+    draft.add_argument('--source', help='1280x720 / 30 fps H.264/yuv420p + AAC 本地视频；省略后交互拖入')
     args = parser.parse_args()
     try:
         return check() if args.command == 'check' else build(args.source)

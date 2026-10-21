@@ -90,6 +90,8 @@ def validate_creation_plan(plan, runtime_profile, assets=None):
     """Restrict the new M5 library without inheriting the old library's evidence."""
     if runtime_profile != M5_PROFILE:
         return
+    if plan.get('canvas') != {'width': 1280, 'height': 720, 'fps': 30}:
+        raise ValueError('M5 reviewed canvas is 1280x720 at 30 fps only')
     tracks = plan.get('tracks', [])
     if not tracks or tracks[0].get('type') != 'video':
         raise ValueError('M5 creation requires H.264 video and optional plain subtitles')
@@ -112,3 +114,7 @@ def validate_creation_plan(plan, runtime_profile, assets=None):
             if (asset.get('kind') != 'video' or asset.get('media_type') != 'video'
                     or asset.get('codec') != 'h264'):
                 raise ValueError('M5 supports H.264 video only; audio files, photos and GIF are unreviewed')
+            if (asset.get('pix_fmt') != 'yuv420p' or asset.get('audio_codec') != 'aac'
+                    or asset.get('has_audio') is not True or asset.get('r_frame_rate') != '30/1'
+                    or (asset.get('width'), asset.get('height')) != (1280, 720)):
+                raise ValueError('M5 reviewed media is 1280x720 H.264/yuv420p at 30 fps with AAC audio only')
