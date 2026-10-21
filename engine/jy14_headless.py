@@ -28,7 +28,8 @@ import native_resources as resources
 import native_effects as effects
 import native_visual_effects as visual_effects
 import native_fonts as fonts
-from runtime_profiles import validate_timeline_schema
+from runtime_profiles import (validate_timeline_schema, validate_creation_plan,
+                              validate_command, M5_PROFILE)
 
 HERE = Path(__file__).resolve().parent
 BLUEPRINT_SHA = '91f7eddad5bff9af23eb88b53713c180e3e3d4054edd469140cfa9aa56bc1dc9'
@@ -151,7 +152,9 @@ def probe(path):
             'decoded_duration_us': None if media_type == 'photo' else round(duration * MICROS),
             'media_type': media_type,
             'width': stream.get('width', 0), 'height': stream.get('height', 0),
-            'codec': stream['codec_name'], 'has_audio': bool(audio)}
+            'codec': stream['codec_name'], 'has_audio': bool(audio),
+            'pix_fmt': stream.get('pix_fmt'), 'r_frame_rate': stream.get('r_frame_rate'),
+            'audio_codec': audio[0].get('codec_name') if audio else None}
 
 
 def blueprint():
@@ -161,7 +164,7 @@ def blueprint():
     return result
 
 
-def validate_plan(plan):
+def validate_plan(plan, runtime_profile=None):
     """Return media, duration and parsed fonts for reuse throughout this build."""
     keys(plan, {'schema', 'name', 'canvas', 'tracks'}, 'Plan')
     require(plan.get('schema') == SCHEMA, 'Unsupported plan schema')
@@ -174,6 +177,7 @@ def validate_plan(plan):
         require(16 <= integer(plan['canvas'].get(key), key) <= 8192, 'Canvas dimension outside 16..8192')
     require(plan['canvas'].get('fps') in {24, 25, 30, 50, 60}, 'Unsupported timeline frame rate')
     require(isinstance(plan.get('tracks'), list), 'Tracks must be a list')
+    validate_creation_plan(plan, runtime_profile)
     assets = {}
     seen_main = False
     duration = 0
@@ -238,6 +242,7 @@ def validate_plan(plan):
         require(seen_main, 'A nonempty draft needs a main video track')
         main_end = max(s.get('start_us', 0) + s['duration_us'] for s in plan['tracks'][0]['segments'])
         require(duration == main_end, 'Overlay, audio and text must fit within the main video duration')
+    validate_creation_plan(plan, runtime_profile, assets.values())
     font_assets = fonts.collect_plan(plan)
     effects.transition_audit(plan, assets)
     return assets, duration, font_assets
@@ -376,7 +381,7 @@ def files_manifest(folder):
 def build(plan_path, out):
     runtime = nd.doctor()
     plan = read_json(plan_path)
-    assets, duration, font_assets = validate_plan(plan)
+    assets, duration, font_assets = validate_plan(plan, runtime['runtime_profile'])
     bp = blueprint()
     target = nd.DRAFT_ROOT / plan['name']
     require(not target.exists(), 'Target already exists; choose a new draft name')
@@ -485,6 +490,29 @@ def native_media_path(value, target):
 def verify_structure(timeline, metadata, plan, assets, target, allow_native_resource_cache=False,
                      runtime_profile=None, font_assets=()):
     validate_timeline_schema(timeline, runtime_profile)
+    validate_creation_plan(plan, runtime_profile, assets)
+    if runtime_profile == M5_PROFILE:
+        allowed = {'videos', 'texts', 'speeds', 'placeholder_infos', 'canvases',
+                   'sound_channel_mappings', 'material_colors', 'vocal_separations', 'material_animations'}
+        require(not any(nodes for bucket, nodes in timeline['materials'].items() if bucket not in allowed),
+                'M5 unreviewed native materials')
+        for node in timeline['materials'].get('material_animations', []):
+            require(set(node) <= {'id', 'type'}, 'M5 text animation is unreviewed')
+        for node in timeline['materials'].get('speeds', []):
+            require(set(node) <= {'id', 'type', 'speed'} and node.get('speed', 1) == 1,
+                    'M5 speed changes are unreviewed')
+        font = '/Applications/VideoFusion-macOS.app/Contents/Resources/Font/SystemFont/zh-hans.ttf'
+        for node in timeline['materials'].get('texts', []):
+            require(node.get('font_path') == font, 'M5 custom fonts are unreviewed')
+            for style in json.loads(node['content'])['styles']:
+                require(style.get('font') == {'id': '', 'path': font}, 'M5 custom fonts are unreviewed')
+        for track in timeline['tracks']:
+            for segment in track['segments']:
+                require(not segment.get('common_keyframes') and not segment.get('keyframe_refs'),
+                        'M5 keyframes are unreviewed')
+                alpha = segment.get('clip', {}).get('alpha', 1)
+                require(type(alpha) in (int, float) and alpha == 1, 'M5 clip alpha must remain 1')
+                require(segment.get('visible', True) is True, 'M5 segment must remain visible')
     require(all(timeline['canvas_config'][k] == plan['canvas'][k] for k in ('width', 'height')), 'Canvas changed')
     require(timeline.get('fps', 30) == plan['canvas']['fps'], 'Timeline frame rate changed')
     require(metadata['draft_fold_path'] == str(target) and metadata['draft_name'] == target.name, 'Draft identity mismatch')
@@ -588,21 +616,54 @@ def verify_structure(timeline, metadata, plan, assets, target, allow_native_reso
     return native_resource_bindings
 
 
+def validate_build_runtime(record, runtime):
+    require(record.get('runtime_profile') == runtime['runtime_profile'],
+            'Build runtime differs; create a fresh isolated build with the current profile')
+    captured = record.get('runtime')
+    require(isinstance(captured, dict) and bool(runtime.get('libvideoeditor_sha256'))
+            and captured.get('libvideoeditor_sha256') == runtime['libvideoeditor_sha256'],
+            'Build editor library differs; create a fresh isolated build with the current library')
+
+
+def verified_plan_assets(plan, recorded, runtime_profile):
+    if runtime_profile != M5_PROFILE:
+        return recorded
+    probed, _, _ = validate_plan(plan, runtime_profile)
+    verified = []
+    for asset in recorded:
+        actual = probed.get(str(Path(asset['source']).resolve()))
+        require(actual is not None and actual['sha256'] == asset['sha256'], 'Recorded source media changed')
+        # Older local trial records lack these facts. Bind the in-memory facts
+        # to identical source bytes; never rewrite their build.json or draft.
+        merged = dict(asset)
+        for key in ('pix_fmt', 'r_frame_rate', 'audio_codec', 'has_audio', 'width', 'height'):
+            require(key not in asset or asset[key] == actual[key], 'Recorded media facts differ: ' + key)
+            merged[key] = actual[key]
+        verified.append(merged)
+    validate_creation_plan(plan, runtime_profile, verified)
+    return verified
+
+
 def verify_build(out):
     out = Path(out).resolve(strict=True)
     record = read_json(out / 'build.json')
+    environment = nd.doctor()
+    validate_build_runtime(record, environment)
     require(record['schema'] == 'jy14-headless-build/v1' and record['blueprint_sha256'] == BLUEPRINT_SHA
             and record['runtime_manifest'] == nd.MANIFEST_SHA, 'Build version or provenance differs')
     require(nd.digest(out / 'plan.json') == record['plan_sha256'], 'Plan changed after build')
     require(files_manifest(out / 'draft') == record['files'], 'Built draft changed')
     plan = read_json(out / 'plan.json')
+    runtime = environment['runtime_profile']
+    assets = verified_plan_assets(plan, record['assets'], runtime)
     target = nd.DRAFT_ROOT / plan['name']
     require(record['target'] == str(target), 'Build target is not the planned direct-child draft')
     h = nd.helper()
     timeline = h._decrypt_metadata_in_memory(out / 'draft/draft_info.json')
     metadata = h._decrypt_metadata_in_memory(out / 'draft/draft_meta_info.json')
     font_assets = fonts.recorded_assets(record, plan)
-    verify_structure(timeline, metadata, plan, record['assets'], target, font_assets=font_assets or ())
+    verify_structure(timeline, metadata, plan, assets, target,
+                     runtime_profile=runtime, font_assets=font_assets or ())
     if font_assets is not None:
         fonts.verify_assets(font_assets, timeline, target, out / 'draft')
     resources.verify_files(record.get('native_resources', []), out / 'draft', plan)
@@ -672,8 +733,7 @@ def publish(out, audit, resume=False, verify_build_fn=None, verify_live_fn=None)
     record = verify_build_fn(out)
     h = nd.helper()
     runtime = h._validate_runtime_environment()
-    require(record.get('runtime_profile') == runtime['runtime_profile'],
-            'Build runtime differs; create a fresh isolated build with the current profile')
+    validate_build_runtime(record, runtime)
     h._ensure_editor_closed(True)
     target = Path(record['target'])
     require(target.parent == nd.DRAFT_ROOT and not target.is_symlink(), 'Invalid new-draft target')
@@ -787,10 +847,14 @@ def publish(out, audit, resume=False, verify_build_fn=None, verify_live_fn=None)
 def verify_live(out):
     out = Path(out).resolve(strict=True)
     record = read_json(out / 'build.json')
+    environment = nd.doctor()
+    validate_build_runtime(record, environment)
     require(record.get('runtime_manifest') == nd.MANIFEST_SHA and record.get('blueprint_sha256') == BLUEPRINT_SHA,
             'Build provenance changed')
     plan = read_json(out / 'plan.json')
     require(nd.digest(out / 'plan.json') == record['plan_sha256'], 'Plan changed')
+    runtime = environment['runtime_profile']
+    assets = verified_plan_assets(plan, record['assets'], runtime)
     font_assets = fonts.recorded_assets(record, plan)
     target = nd.DRAFT_ROOT / plan['name']
     require(str(target) == record['target'] and target.is_dir() and not target.is_symlink(), 'Invalid target directory')
@@ -798,9 +862,9 @@ def verify_live(out):
     timeline = h._decrypt_metadata_in_memory(target / 'draft_info.json')
     metadata = h._decrypt_metadata_in_memory(target / 'draft_meta_info.json')
     require(timeline['id'] == record['timeline_id'] and metadata['draft_id'] == record['draft_id'], 'Draft identity changed')
-    native_resource_bindings = verify_structure(timeline, metadata, plan, record['assets'], target,
+    native_resource_bindings = verify_structure(timeline, metadata, plan, assets, target,
                                                allow_native_resource_cache=True,
-                                               runtime_profile=nd.doctor()['runtime_profile'],
+                                               runtime_profile=runtime,
                                                font_assets=font_assets or ())
     project = read_json(target / 'Timelines/project.json')
     require(project['main_timeline_id'] == timeline['id'], 'Project/timeline reference changed')
@@ -877,44 +941,29 @@ def from_compiled(compiled, name, out, cached_sounds_as_local=False):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description='M5 local H.264 video and plain subtitle workflow')
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('doctor')
     p = sub.add_parser('build')
     p.add_argument('--plan', required=True); p.add_argument('--out', required=True)
-    for name in ('publish', 'resume-publish'):
-        p = sub.add_parser(name)
-        p.add_argument('--build', required=True); p.add_argument('--audit', required=True)
-    p = sub.add_parser('create')
-    p.add_argument('--plan', required=True); p.add_argument('--work', required=True)
+    p = sub.add_parser('publish')
+    p.add_argument('--build', required=True); p.add_argument('--audit', required=True)
     for name in ('verify-build', 'verify'):
         p = sub.add_parser(name); p.add_argument('--build', required=True)
         p.add_argument('--report')
-    p = sub.add_parser('from-compiled')
-    p.add_argument('--compiled', required=True); p.add_argument('--name', required=True); p.add_argument('--out', required=True)
-    p.add_argument('--cached-sounds-as-local', action='store_true')
-    p = sub.add_parser('cached-sound')
-    p.add_argument('--name', required=True)
     args = parser.parse_args()
+    validate_command(args.command, nd.doctor()['runtime_profile'])
     if args.command == 'doctor':
         blueprint(); result = nd.doctor()
     elif args.command == 'build':
         result = build(args.plan, args.out)
-    elif args.command in ('publish', 'resume-publish'):
-        result = publish(args.build, args.audit, resume=args.command == 'resume-publish')
-    elif args.command == 'create':
-        work = nd.fresh_directory(args.work)
-        build(args.plan, work / 'build')
-        result = publish(work / 'build', work / 'audit')
+    elif args.command == 'publish':
+        result = publish(args.build, args.audit)
     elif args.command == 'verify':
         result = verify_live(args.build)
-    elif args.command == 'verify-build':
+    else:
         record = verify_build(args.build)
         result = {'status': 'verified', 'name': record['name'], 'live_written': False}
-    elif args.command == 'cached-sound':
-        result = dict(cached_sound(args.name), native_library_registration_created=False)
-    else:
-        result = from_compiled(args.compiled, args.name, args.out, args.cached_sounds_as_local)
     if getattr(args, 'report', None):
         write(args.report, result)
     print(json.dumps(result, ensure_ascii=False, indent=2))

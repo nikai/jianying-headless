@@ -870,7 +870,7 @@ class SavedMacOsProvenanceTests(unittest.TestCase):
 
     def test_unknown_profile_cannot_allow_os_restamp(self):
         expected, actual = self.upgrade_pair()
-        with self.assertRaisesRegex(ValueError, 'incompatible with this runtime profile'):
+        with self.assertRaisesRegex(ValueError, 'No reviewed edit profile'):
             self.verify(expected, actual, 'jy14-headless-macos-11.5.1')
 
     def test_source_platform_and_other_last_modified_fields_remain_strict(self):

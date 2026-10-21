@@ -5,7 +5,7 @@ runtime, and delivering a frozen snapshot still needs an export path. These
 tests pin both of those so widening the structural set cannot quietly widen
 either one. No app, codec, media, draft or network is needed.
 
-The 2026-10-20 acceptance behind the 11.6.0 entry is in docs/VERIFICATION.md.
+The old 11.6.0 acceptance does not apply to the M5 library; it stays excluded.
 """
 from pathlib import Path
 import sys
@@ -22,10 +22,10 @@ PREFIX = profiles.PROFILE_PREFIX
 class SupportedProfileTests(unittest.TestCase):
     def test_exactly_the_runtimes_with_compound_evidence(self):
         self.assertEqual(compound.SUPPORTED_PROFILES,
-                         frozenset(PREFIX + v for v in ('11.4.2', '11.5.0', '11.6.0')))
+                         frozenset(PREFIX + v for v in ('11.4.2', '11.5.0')))
 
     def test_runtimes_without_compound_evidence_stay_out(self):
-        for version in ('11.4.0', '11.5.1', '11.7.0', ''):
+        for version in ('11.4.0', '11.5.1', '11.6.0', '11.7.0', ''):
             with self.subTest(version=version):
                 self.assertNotIn(PREFIX + version, compound.SUPPORTED_PROFILES)
 
@@ -52,8 +52,7 @@ class StillRefusedTests(unittest.TestCase):
         compound.require_publishable({'id': 'root', 'duration': 1000, 'materials': {}, 'tracks': []})
 
     def test_adding_compound_runtimes_did_not_add_an_export_runtime(self):
-        # 11.6.0 can build compound structures but has no headless export ABI,
-        # so the frozen-snapshot delivery stays unavailable there.
+        # M5 11.6.0 has neither compound acceptance nor a headless export ABI.
         self.assertNotIn(PREFIX + '11.6.0', profiles.EXPORT_PROFILES)
         self.assertEqual(profiles.EXPORT_PROFILES,
                          frozenset(PREFIX + v for v in ('11.5.0', '11.4.2')))

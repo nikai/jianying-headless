@@ -15,7 +15,7 @@ def project_root():
             raise SystemExit('JIANYING_HEADLESS_ROOT must be an absolute checkout path')
         candidates = [path.resolve()]
     else:
-        candidates = list(Path(__file__).resolve().parents)
+        candidates = list(Path(__file__).resolve().parents) + [Path.home() / 'repos/third-party/jianying-headless']
     for path in candidates:
         marker = path / 'project.json'
         if marker.is_file() and not marker.is_symlink():
@@ -26,27 +26,28 @@ def project_root():
             if identity.get('id') == 'jianying-headless' and identity.get('schema') == 'jianying-headless-project/v1':
                 return path
     raise SystemExit('Jianying Headless checkout unavailable. Clone the project with authorized GitHub access, '
-                     'then set JIANYING_HEADLESS_ROOT to its absolute path. The Skill alone does not include the engine.')
+                     'at ~/repos/third-party/jianying-headless, or set JIANYING_HEADLESS_ROOT to an absolute path. '
+                     'The Skill alone does not include the engine.')
 
 
 PROJECT_ROOT = project_root()
 BACKEND = PROJECT_ROOT / 'engine'
 PINS = {
     'native_fonts.py': 'ddd7b4c1ecd55890bd645c14930f2c5f6687794691c2280daa32673e048da5e6',
-    'runtime_profiles.py': 'b1596599e97b90586ea444280bbca89a0e47bd7d34cc05773f2bcd4314b0e0c1',
-    'jy14_headless.py': '3feb3efeb10173303986609a36b9e173ccd651430acbb6b0cc8e945e4ffc2a9b',
+    'runtime_profiles.py': '74663c8ebd21669cebc02c5ec0469979d64b510b3cb268f8e8a2bd03d4c3ad26',
+    'jy14_headless.py': '8f467efcf7e2423018f07a9a4139a274ace3141c8bc0cc0733e3da200ea4ff00',
     'native_motion.py': '5d743caaa38c921779166e5663d36f72a0c3fdb130a690ac3942a7adcf62d6c2',
     'native_effects.py': 'c46b2fc9221dd613f220564b752e532f8f3753dd5595aaffc24f41d5236e4e97',
     'native_resources.py': '9bddfbb1cd688cebd69ac49f9bbf63c242522d9666a2ef7b412fe097113f68f2',
     'native_visual_effects.py': '15df7e56cc7d575a552c180e72ec712f136c618d271b2f3ad2d32dd5929e844c',
     'native-resource-catalog.json': '97af2df27463a9183fb1aa8f2ef534b37a644cb196f340fe88fdc50b456abde9',
-    'native_compound.py': '8812dd95b74d0743d38f8329443a252f59c25690b14ed894a2b1e063c4d263dc',
+    'native_compound.py': '3b173a3ce10e79e48c0f598b8fbb96bbf35d706db6039a0f68a9917b1717352f',
     'compound-blueprint.json': '9cba9435053280abf9072d5eaccb8586c841b11dac6854b32daf9cbdba76af8e',
-    'native_edit.py': '8a604cd8b95129ba066da04d984254ea7023f60d314c7b080378c13411403d62',
+    'native_edit.py': '4f515112feced8dd3ba644b8fca20f4c55e2d67c4920ea413673833c531053df',
     'native_export.py': '10191828c86c12396c77be5ac7a39ee712c4b5f1ac341a09f73418eac5d7202d',
     'ui_export.py': '2d3d6a1812ef3c394e5404294dd5de17f828c3ec3e4548f604dcbff87e51186c',
     'native_export.cpp': 'c60da6c65f5bb7ac733b8f5b619401be3921f9254b953a55903d4e7566156379',
-    'headless_runtime.py': '81d75135473eb531688099b45a5a2acf922b4c385a8feaf39f0c92963b46ccca',
+    'headless_runtime.py': 'e26cbfc52589cbab7092174b8a8dd8be2b3a753f3c3e95cc589cb2083e5e43d0',
     'blueprint.json': '91f7eddad5bff9af23eb88b53713c180e3e3d4054edd469140cfa9aa56bc1dc9',
     'windows_portable.py': '707e5f1040ad59384f864e5e2ad41ff2c93853be8c7bd562d44f6fb632d244ca',
     'windows_export.py': 'b4f20ce94b6ca0a72d5c542bc56ce9fd23a13a09826ba71a34beb99e23474fc8',
@@ -62,32 +63,9 @@ for name, expected in PINS.items():
 sys.path.insert(0, str(BACKEND))
 entrypoint = 'jy14_headless.py'
 command = sys.argv[1] if len(sys.argv) > 1 else None
-if command == 'edit':
-    if os.name == 'nt':
-        raise SystemExit('Native Jianying draft editing is macOS-only')
-    entrypoint = 'native_edit.py'
-    del sys.argv[1]
-elif command == 'export':
-    requested = None
-    if '--backend' in sys.argv:
-        index = sys.argv.index('--backend')
-        if index + 1 >= len(sys.argv):
-            raise SystemExit('--backend needs a value')
-        requested = sys.argv[index + 1]
-        del sys.argv[index:index + 2]
-    if requested not in {None, 'native', 'windows-ffmpeg'}:
-        raise SystemExit('Unsupported export backend: ' + requested)
-    entrypoint = ('windows_export.py'
-                  if requested == 'windows-ffmpeg' or (requested is None and os.name == 'nt')
-                  else 'native_export.py')
-    del sys.argv[1]
-elif command == 'ui-export':
-    if os.name == 'nt':
-        raise SystemExit('UI export acceptance is macOS-only')
-    entrypoint = 'ui_export.py'
-    del sys.argv[1]
-elif os.name == 'nt':
-    if command not in {None, '--help', '-h', 'doctor', 'build', 'verify-build'}:
-        raise SystemExit('This command requires the macOS native backend: ' + str(command))
-    entrypoint = 'windows_portable.py'
+if command not in {None, '--help', '-h', 'doctor', 'build', 'verify-build', 'publish', 'verify'}:
+    raise SystemExit('M5 local entry supports only doctor/build/verify-build/publish/verify; '
+                     'editing, resources, compound and all exports are unavailable')
+if os.name == 'nt':
+    raise SystemExit('M5 local entry requires Apple Silicon macOS')
 runpy.run_path(str(BACKEND / entrypoint), run_name='__main__')

@@ -9,6 +9,7 @@ is substituted to avoid its unrelated doctor/codec preflight. No renderer,
 codec result, runtime fingerprint, or visual acceptance is simulated.
 """
 from copy import deepcopy
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -53,6 +54,13 @@ def fixture(target, y=.4, start=0, kind='text'):
             'tracks': [{'type': kind, 'name': 'synthetic', 'segments': [spec]}]}
     timeline, _ = j.timeline_for(plan, assets, target, j.identifier(), j.blueprint())
     timeline['new_version'] = '187.0.0'
+    font = str(target.parent / 'app/Contents/Resources/Font/SystemFont/zh-hans.ttf')
+    for text in timeline['materials'].get('texts', []):
+        text['font_path'] = font
+        content = json.loads(text['content'])
+        for style in content['styles']:
+            style['font']['path'] = font
+        text['content'] = json.dumps(content, ensure_ascii=False, separators=(',', ':'))
     return timeline
 
 
@@ -70,6 +78,13 @@ class PositionStaging115Tests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.base = Path(temporary.name).resolve()
         self.target = self.base / 'target'
+        app = self.base / 'app'
+        font = app / 'Contents/Resources/Font/SystemFont/zh-hans.ttf'
+        font.parent.mkdir(parents=True)
+        font.write_bytes(b'opaque synthetic font for structural staging only')
+        app_patch = patch.object(j.nd, 'APP', app)
+        app_patch.start()
+        self.addCleanup(app_patch.stop)
         self.source_folder = self.base / 'source'
         self.source_folder.mkdir()
         # A cover is an opaque copied dependency in this structural test. These

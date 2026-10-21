@@ -50,15 +50,15 @@ class ToolchainTests(unittest.TestCase):
         self.assertEqual(command[-1], '/work/jy14_codec_hardened_11_4')
 
     def test_exact_compiler_build_not_just_major_version(self):
-        reproduction = {'compiler': 'Apple clang 21.0.0 (clang-2100.1.1.101)',
-                        'macos_sdk': '26.5', 'binary_minimum_macos': '26.0'}
+        reproduction = {'compiler': 'Apple clang 21.0.0 (clang-2100.3.34.2)',
+                        'macos_sdk': '27.0', 'binary_minimum_macos': '26.0'}
         for compiler, linker, accepted in [
-                ('Apple clang version 21.0.0 (clang-2100.1.1.101)', '1267', True),
-                ('Apple clang version 21.0.0 (clang-2100.3.34.2)', '1267', False),
-                ('Apple clang version 21.0.0 (clang-2100.1.1.101)', '9999', False)]:
-            with self.subTest(compiler=compiler, linker=linker), patch.object(Path, 'is_dir', return_value=True), patch.object(tc, 'run', side_effect=[compiler, '/sdk', '26.5', json.dumps({'version': linker})]):
+                ('Apple clang version 21.0.0 (clang-2100.3.34.2)', '27037.1', True),
+                ('Apple clang version 21.0.0 (clang-2100.1.1.101)', '27037.1', False),
+                ('Apple clang version 21.0.0 (clang-2100.3.34.2)', '9999', False)]:
+            with self.subTest(compiler=compiler, linker=linker), patch.object(Path, 'is_dir', return_value=True), patch.object(tc, 'run', side_effect=[compiler, '/sdk', '27.0', json.dumps({'version': linker})]):
                 if accepted:
-                    self.assertEqual(tc.inspect(Path('/developer'), reproduction)[1]['linker'], '1267')
+                    self.assertEqual(tc.inspect(Path('/developer'), reproduction)[1]['linker'], '27037.1')
                 else:
                     with self.assertRaisesRegex(ValueError, 'Not the reviewed toolchain'):
                         tc.inspect(Path('/developer'), reproduction)
@@ -221,10 +221,11 @@ class PublishRecoveryTests(unittest.TestCase):
         self.original = {'root_path': str(self.root), 'draft_ids': 7,
                          'all_draft_store': [{'draft_id': 'existing', 'draft_name': 'untouched'}]}
         j.write(self.root / 'root_meta_info.json', self.original)
-        self.record = {'runtime_profile': 'test-profile', 'target': str(self.target), 'draft_id': 'new-id',
+        runtime = {'runtime_profile': 'test-profile', 'libvideoeditor_sha256': '1' * 64}
+        self.record = {'runtime': runtime, 'runtime_profile': 'test-profile', 'target': str(self.target), 'draft_id': 'new-id',
                        'files': j.files_manifest(self.out / 'draft')}
         helper = SimpleNamespace(
-            _validate_runtime_environment=lambda: {'runtime_profile': 'test-profile'},
+            _validate_runtime_environment=lambda: runtime,
             _ensure_editor_closed=lambda _: None, _decrypt_metadata_in_memory=j.read_json,
             **{name: getattr(runtime_io, name) for name in (
                 '_snapshot_file', '_parse_strict_json', '_revalidate_snapshot',

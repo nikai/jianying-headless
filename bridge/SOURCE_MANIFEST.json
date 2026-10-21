@@ -3,9 +3,9 @@
   "source_files": {
     "jy14_codec.cpp": "982f2fbf0f394e0992f8e38305d17354e534c3b64489cd571c6a525f16489a2c",
     "EncryptUtil.h": "8a5c4c6aabbd52c27ea9057bc230afb383a8784f1478a6f7894c478b12c50f62",
-    "runtime_io.py": "487cf8c65bddad2ecdb351b16996d923bd6bcc6861dba12e801f679821b4ef70"
+    "runtime_io.py": "a4f5b21690af76872f91ef72dfe167bb2bf1852b7acc812127a08a3af8bcf3a1"
   },
-  "expected_codec_sha256": "b6533eb5eb1eea58dfa74fb1d16d3bb580970fe881f587605d358af1745f971d",
+  "expected_codec_sha256": "0ab125cdfa4b81f2540381d2bb0f19f885e46e204437d3d3c77efe1263cc2f6f",
   "official_library_distributed": false,
   "runtime_io_origin": {
     "module": "project-local 11.4 IO helper",
@@ -47,10 +47,10 @@
     ]
   },
   "reproduction_environment": {
-    "operating_system": "macOS 26.5.1 (25F80)",
+    "operating_system": "macOS 27.0.1 (M5 experimental trial)",
     "architecture": "arm64",
-    "compiler": "Apple clang 21.0.0 (clang-2100.1.1.101)",
-    "macos_sdk": "26.5",
+    "compiler": "Apple clang 21.0.0 (clang-2100.3.34.2)",
+    "macos_sdk": "27.0",
     "binary_minimum_macos": "26.0",
     "other_toolchains": "not-accepted-unless-output-matches-the-existing-pinned-hash"
   },

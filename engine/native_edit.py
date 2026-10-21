@@ -528,6 +528,7 @@ def build(plan_path, out):
 
 
 def verify_build(out):
+    j.require(j.nd.doctor()['runtime_profile'] in EDIT_PROFILES, 'No reviewed edit profile for this runtime')
     out = Path(out).resolve(strict=True)
     record = j.read_json(out / 'build.json')
     j.require(record['schema'] == BUILD_SCHEMA and record['runtime_manifest'] == j.nd.MANIFEST_SHA, 'Edit build provenance differs')
@@ -872,6 +873,7 @@ def normalize_saved_curve_averages(expected, actual, runtime):
 
 
 def verify_live(out):
+    j.require(j.nd.doctor()['runtime_profile'] in EDIT_PROFILES, 'No reviewed edit profile for this runtime')
     out = Path(out).resolve(strict=True)
     record = j.read_json(out / 'build.json')
     j.require(record.get('schema') == BUILD_SCHEMA and record.get('runtime_manifest') == j.nd.MANIFEST_SHA, 'Unknown edit build')
