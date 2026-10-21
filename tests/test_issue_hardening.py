@@ -50,15 +50,15 @@ class ToolchainTests(unittest.TestCase):
         self.assertEqual(command[-1], '/work/jy14_codec_hardened_11_4')
 
     def test_exact_compiler_build_not_just_major_version(self):
-        reproduction = {'compiler': 'Apple clang 21.0.0 (clang-2100.1.1.101)',
-                        'macos_sdk': '26.5', 'binary_minimum_macos': '26.0'}
+        reproduction = {'compiler': 'Apple clang 21.0.0 (clang-2100.3.34.2)',
+                        'macos_sdk': '27.0', 'binary_minimum_macos': '26.0'}
         for compiler, linker, accepted in [
-                ('Apple clang version 21.0.0 (clang-2100.1.1.101)', '1267', True),
-                ('Apple clang version 21.0.0 (clang-2100.3.34.2)', '1267', False),
-                ('Apple clang version 21.0.0 (clang-2100.1.1.101)', '9999', False)]:
-            with self.subTest(compiler=compiler, linker=linker), patch.object(Path, 'is_dir', return_value=True), patch.object(tc, 'run', side_effect=[compiler, '/sdk', '26.5', json.dumps({'version': linker})]):
+                ('Apple clang version 21.0.0 (clang-2100.3.34.2)', '27037.1', True),
+                ('Apple clang version 21.0.0 (clang-2100.1.1.101)', '27037.1', False),
+                ('Apple clang version 21.0.0 (clang-2100.3.34.2)', '9999', False)]:
+            with self.subTest(compiler=compiler, linker=linker), patch.object(Path, 'is_dir', return_value=True), patch.object(tc, 'run', side_effect=[compiler, '/sdk', '27.0', json.dumps({'version': linker})]):
                 if accepted:
-                    self.assertEqual(tc.inspect(Path('/developer'), reproduction)[1]['linker'], '1267')
+                    self.assertEqual(tc.inspect(Path('/developer'), reproduction)[1]['linker'], '27037.1')
                 else:
                     with self.assertRaisesRegex(ValueError, 'Not the reviewed toolchain'):
                         tc.inspect(Path('/developer'), reproduction)

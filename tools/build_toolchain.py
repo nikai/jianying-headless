@@ -6,7 +6,7 @@ import subprocess
 
 # Independently read from the reviewed binary's LC_BUILD_VERSION and local ld.
 # Compiler and SDK identities remain in the source manifest.
-REVIEWED_LINKER = '1267'
+REVIEWED_LINKER = '27037.1'
 
 
 def run(command, env):

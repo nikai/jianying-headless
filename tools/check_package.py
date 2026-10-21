@@ -96,7 +96,7 @@ def main():
             require(re.search(r'(?m)^permissions:\s*\n\s+contents:\s*read\s*$', content),
                     'Workflow permissions must be read-only')
             require('secrets.' not in content and 'timeout-minutes:' in content
-                    and 'retention-days:' in content,
+                    and ('actions/upload-artifact@' not in content or 'retention-days:' in content),
                     'Workflow secret, timeout or retention policy is invalid')
             for action in re.findall(r'(?m)^\s*-?\s*uses:\s*([^\s#]+)', content):
                 require(re.fullmatch(r'[^@]+@[0-9a-f]{40}', action),

@@ -22,10 +22,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 BACKEND = PROJECT_ROOT / 'bridge'
 # Historical blueprint/codec provenance, not a statement of the current app version.
 MANIFEST_SHA = '2fea820b26d503940526c345ce8e9bd87c25f0c1c8b1c4a02aa8edba317e33dd'
-IO_MANIFEST_SHA = '473b05370d77f0835e11f0fde4f3cec2eec0b00777aa0018441bc9e7b53bb300'
+IO_MANIFEST_SHA = '0edbf6da40e559da92c268ae17d8588850c5680aa195238957460f0d4f4f7eab'
 PINS = {
-    'runtime_io.py': '487cf8c65bddad2ecdb351b16996d923bd6bcc6861dba12e801f679821b4ef70',
-    'jy14_codec_hardened_11_4': 'b6533eb5eb1eea58dfa74fb1d16d3bb580970fe881f587605d358af1745f971d',
+    'runtime_io.py': 'a4f5b21690af76872f91ef72dfe167bb2bf1852b7acc812127a08a3af8bcf3a1',
+    'jy14_codec_hardened_11_4': '0ab125cdfa4b81f2540381d2bb0f19f885e46e204437d3d3c77efe1263cc2f6f',
 }
 BUNDLE_ID = 'com.lemon.lvpro'
 TEAM = 'X2JNK7LY8J'

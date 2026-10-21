@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 REQUIRED_CODEC_SHA256 = (
-    "b6533eb5eb1eea58dfa74fb1d16d3bb580970fe881f587605d358af1745f971d"
+    "0ab125cdfa4b81f2540381d2bb0f19f885e46e204437d3d3c77efe1263cc2f6f"
 )
 
 APP_BUNDLE = Path("/Applications/VideoFusion-macOS.app")

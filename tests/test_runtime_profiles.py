@@ -23,17 +23,25 @@ class RuntimeProfiles(unittest.TestCase):
         self.assertEqual(profiles.PROFILES['11.4.2'],
                          '632c8ddd09ff4a54f876cd8142eb505055ee26d944199506b230949b7e106bd1')
 
-    def test_exact_1160_fingerprint_matches_official_13281_package(self):
+    def test_exact_1160_fingerprint_matches_m5_experimental_package(self):
         self.assertEqual(profiles.PROFILES['11.6.0'],
-                         'a490d9a08b71a2d9af138d24528d3d40d65b37b06911627c53a2915c6cac0754')
+                         '1748fa32a09a967b46515a3acb04863a917b445682d06a64c0e9f0a739db01f1')
 
-    def test_1160_has_draft_resources_but_no_export_abi(self):
+    def test_m5_has_only_plain_creation_capabilities(self):
         p=profiles.PROFILE_PREFIX+'11.6.0'
-        self.assertNotIn(p,profiles.EXPORT_PROFILES)
-        self.assertEqual(profiles.RESOURCE_PROFILES,profiles.EXPORT_PROFILES|{p})
-        profiles.validate_resource_profile(p,profiles.RESOURCE_CAPTURE_PROFILE)
+        for allowed in (profiles.RESOURCE_PROFILES, profiles.EDIT_PROFILES,
+                        profiles.EXPORT_PROFILES, profiles.UI_EXPORT_PROFILES):
+            self.assertNotIn(p, allowed)
         with self.assertRaises(ValueError):
-            profiles.validate_resource_profile(p,p)
+            profiles.validate_resource_profile(p,profiles.RESOURCE_CAPTURE_PROFILE)
+        for command in profiles.M5_COMMANDS:
+            profiles.validate_command(command,p)
+        for other in ('jy14-headless-macos-11.5.0', 'jy14-headless-macos-11.4.2', None):
+            with self.subTest(runtime=other), self.assertRaises(ValueError):
+                profiles.validate_command('doctor',other)
+        for command in ('edit', 'export', 'ui-export', 'create', 'resume-publish', 'from-compiled', 'cached-sound'):
+            with self.subTest(command=command), self.assertRaises(ValueError):
+                profiles.validate_command(command,p)
 
     def test_mismatched_hash_build_bundle_and_unknown_version_rejected(self):
         for version in ('11.6.0','11.5.0','11.4.2'):
@@ -70,10 +78,10 @@ class RuntimeProfiles(unittest.TestCase):
         newest = {'new_version':'189.0.0','version':360000}
         for version in ('11.4.0','11.4.2','11.5.0','11.6.0'):
             profiles.validate_timeline_schema(old,profiles.PROFILE_PREFIX+version)
-        for version in ('11.5.0','11.6.0'):
+        for version in ('11.5.0',):
             profiles.validate_timeline_schema(new,profiles.PROFILE_PREFIX+version)
         profiles.validate_timeline_schema(newest,profiles.PROFILE_PREFIX+'11.6.0')
-        for version in ('11.4.0','11.4.2','11.5.1','11.6.1'):
+        for version in ('11.4.0','11.4.2','11.5.1','11.6.0','11.6.1'):
             with self.subTest(schema='187',version=version),self.assertRaises(ValueError):
                 profiles.validate_timeline_schema(new,profiles.PROFILE_PREFIX+version)
         for version in ('11.4.0','11.4.2','11.5.0','11.6.1'):
@@ -98,7 +106,7 @@ class RuntimeProfiles(unittest.TestCase):
     def test_1160_ui_upgrades_are_exact(self):
         runtime=profiles.PROFILE_PREFIX+'11.6.0'
         saved={'id':'sample','new_version':'189.0.0','version':360000,'last_modified_platform':{'app_version':'11.6.0'}}
-        for source in ('185.0.0','187.0.0'):
+        for source in ('185.0.0',):
             before={'id':'sample','new_version':source,'version':360000}
             self.assertEqual(profiles.saved_schema_upgrade(before,saved,runtime),
                              {'timeline_id':'sample','before':source,'after':'189.0.0'})
@@ -112,7 +120,119 @@ class RuntimeProfiles(unittest.TestCase):
                 profiles.saved_schema_upgrade(before,after,runtime)
         with self.assertRaises(ValueError):
             profiles.saved_schema_upgrade(old,saved,profiles.PROFILE_PREFIX+'11.5.0')
-        self.assertIn(runtime,profiles.EDIT_PROFILES)
+        self.assertNotIn(runtime,profiles.EDIT_PROFILES)
+        with self.assertRaises(ValueError):
+            profiles.saved_schema_upgrade(dict(old,new_version="187.0.0"),saved,runtime)
+
+
+class M5CreationBoundary(unittest.TestCase):
+    """Exercise runtime gates before build writes or codec/resource access."""
+    def setUp(self):
+        import jy14_headless as j
+        self.j = j
+        self.profile = profiles.M5_PROFILE
+        self.plan = {'schema': j.SCHEMA, 'name': 'Joker-m5-boundary',
+                     'canvas': {'width': 1280, 'height': 720, 'fps': 30},
+                     'tracks': [{'type': 'video', 'segments': [
+                         {'source': '/unused/source.mp4', 'duration_us': 4000000}]},
+                         {'type': 'text', 'segments': [{'text': '字幕', 'duration_us': 4000000}]}]}
+        self.asset = {'kind': 'video', 'media_type': 'video', 'codec': 'h264'}
+
+    def test_plain_video_and_subtitle_are_accepted(self):
+        profiles.validate_creation_plan(self.plan, self.profile, [self.asset])
+
+    def bad_plans(self):
+        from copy import deepcopy
+        for kind in ('audio', 'filter', 'effect', 'compound'):
+            bad = deepcopy(self.plan); bad['tracks'][1]['type'] = kind
+            yield kind, bad
+        for kind, fields in (('video', {'keyframes': {}, 'mask': {}, 'transition_out': {},
+                                      'speed': 1.5, 'volume': 0.5, 'scale': 2, 'opacity': 0.5}),
+                             ('text', {'font_path': '/unused/font.ttf', 'text_effect': 'test',
+                                       'keyframes': {}, 'opacity': 0.5})):
+            for field, value in fields.items():
+                bad = deepcopy(self.plan)
+                bad['tracks'][0 if kind == 'video' else 1]['segments'][0][field] = value
+                yield kind + '/' + field, bad
+        bad = deepcopy(self.plan)
+        bad['tracks'][0]['segments'][0]['source_duration_us'] = 5000000
+        yield 'nonunit-speed', bad
+        bad = deepcopy(self.plan); bad['tracks'].append(deepcopy(bad['tracks'][0]))
+        yield 'overlay-video', bad
+
+    def test_unreviewed_plans_fail_before_build_output(self):
+        from unittest.mock import patch
+        for label, bad in self.bad_plans():
+            with self.subTest(label=label), patch.object(self.j.nd, 'doctor', return_value={'runtime_profile': self.profile}), \
+                    patch.object(self.j, 'read_json', return_value=bad), \
+                    patch.object(self.j.nd, 'fresh_directory') as output, \
+                    patch.object(self.j, 'probe') as probe:
+                with self.assertRaises(ValueError):
+                    self.j.build('unused', 'unused')
+                output.assert_not_called(); probe.assert_not_called()
+
+    def test_audio_photos_gif_and_hevc_are_rejected(self):
+        for fields in ({'kind': 'audio'}, {'media_type': 'photo', 'codec': 'png'},
+                       {'media_type': 'photo', 'codec': 'mjpeg'}, {'media_type': 'gif', 'codec': 'gif'},
+                       {'codec': 'hevc'}):
+            with self.subTest(fields=fields), self.assertRaises(ValueError):
+                profiles.validate_creation_plan(self.plan, self.profile, [dict(self.asset, **fields)])
+
+    def test_edit_inspection_and_both_verifiers_refuse_before_draft_access(self):
+        from unittest.mock import patch
+        import native_edit as edit
+        with patch.object(self.j.nd, 'doctor', return_value={'runtime_profile': self.profile}), \
+                patch.object(self.j.nd, 'helper') as helper:
+            for operation in (edit.load_source, edit.verify_build, edit.verify_live):
+                with self.subTest(operation=operation.__name__), self.assertRaisesRegex(ValueError, 'profile'):
+                    operation('/does-not-exist')
+            helper.assert_not_called()
+
+    def test_verifiers_reject_unreviewed_recorded_plans_before_codec(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        work = ROOT / 'work/m5-scope-fix'
+        work.mkdir(exist_ok=True)
+        for label, plan in self.bad_plans():
+            with self.subTest(label=label), tempfile.TemporaryDirectory(dir=work) as name:
+                folder = Path(name)
+                (folder / 'draft').mkdir()
+                raw = json.dumps(plan).encode(); (folder / 'plan.json').write_bytes(raw)
+                record = {'schema': 'jy14-headless-build/v1', 'blueprint_sha256': self.j.BLUEPRINT_SHA,
+                          'runtime_manifest': self.j.nd.MANIFEST_SHA, 'runtime_profile': self.profile,
+                          'plan_sha256': self.j.nd.digest(folder / 'plan.json'), 'files': {}, 'assets': [self.asset]}
+                (folder / 'build.json').write_text(json.dumps(record))
+                with patch.object(self.j.nd, 'doctor', return_value={'runtime_profile': self.profile}), \
+                        patch.object(self.j.nd, 'helper') as helper:
+                    for operation in (self.j.verify_build, self.j.verify_live):
+                        with self.assertRaises(ValueError): operation(folder)
+                    helper.assert_not_called()
+
+    def test_readback_rejects_unplanned_native_effects_fonts_and_animation(self):
+        from copy import deepcopy
+        timeline = {'new_version': '189.0.0', 'version': 360000, 'materials': {}, 'tracks': []}
+        cases = [
+            ('audios', [{'id': 'audio'}], 'unreviewed native materials'),
+            ('drafts', [{'id': 'compound'}], 'unreviewed native materials'),
+            ('common_mask', [{'id': 'mask'}], 'unreviewed native materials'),
+            ('video_effects', [{'id': 'effect'}], 'unreviewed native materials'),
+            ('material_animations', [{'id': 'animation', 'type': 'sticker_animation', 'animations': [{}]}], 'text animation'),
+            ('speeds', [{'id': 'speed', 'curve_speed': {}}], 'speed changes'),
+            ('texts', [{'font_path': '/custom.ttf'}], 'custom fonts'),
+            ('texts', [{'font_path': '/Applications/VideoFusion-macOS.app/Contents/Resources/Font/SystemFont/zh-hans.ttf',
+                        'content': json.dumps({'styles': [{'font': {'id': '', 'path': '/custom.ttf'}}]})}], 'custom fonts'),
+        ]
+        for bucket, nodes, message in cases:
+            actual = deepcopy(timeline); actual['materials'][bucket] = nodes
+            with self.subTest(bucket=bucket), self.assertRaisesRegex(ValueError, 'M5 ' + message):
+                self.j.verify_structure(actual, {}, self.plan, [self.asset], Path('/unused'),
+                                        runtime_profile=self.profile)
+        for field in ('common_keyframes', 'keyframe_refs'):
+            actual = deepcopy(timeline); actual['tracks'] = [{'segments': [{field: [{}]}]}]
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, 'M5 keyframes'):
+                self.j.verify_structure(actual, {}, self.plan, [self.asset], Path('/unused'),
+                                        runtime_profile=self.profile)
 
 
 if __name__=='__main__':

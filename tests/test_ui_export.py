@@ -78,9 +78,9 @@ class ContainerTests(unittest.TestCase):
 
 
 class ProfileTests(unittest.TestCase):
-    def test_only_the_runtime_with_actual_evidence_is_registered(self):
+    def test_no_ui_export_profile_is_enabled_for_the_local_fork(self):
         self.assertEqual(profiles.UI_EXPORT_PROFILES,
-                         frozenset((profiles.PROFILE_PREFIX + '11.6.0',)))
+                         frozenset())
 
     def test_this_set_is_separate_from_the_headless_export_set(self):
         self.assertFalse(profiles.UI_EXPORT_PROFILES & profiles.EXPORT_PROFILES)

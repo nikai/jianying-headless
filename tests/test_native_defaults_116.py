@@ -5,12 +5,14 @@ omitted `fps`, omitted unit segment `speed` and `volume`, regenerated empty phot
 companions including one the 185 source never had, and the custom-curve average
 recalculated against the frame-floored target duration. The fixtures themselves
 are synthetic and need no app, codec, account, media, user draft or network.
-Passing offline does not establish native UI acceptance on any other machine.
+These historical algorithms are isolated from capability checks in the fixtures.
+The new M5 library is excluded from EDIT_PROFILES; passing here grants no edit access.
 """
 from copy import deepcopy
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'engine'))
@@ -60,7 +62,7 @@ class SavedDefaultTests(unittest.TestCase):
                 if reverse:
                     expected, actual = actual, expected
                 with self.subTest(locations=locations, reverse=reverse):
-                    with saved_copy_fixture(expected, actual, PROFILE) as (out, _, __):
+                    with saved_copy_fixture(expected, actual, PROFILE) as (out, _, __), patch.object(edit, 'EDIT_PROFILES', {PROFILE, PROFILE_115}):
                         self.assertEqual(edit.verify_live(out)['status'], 'verified')
 
     def test_nondefault_values_are_never_hidden_by_an_omission(self):
@@ -74,7 +76,7 @@ class SavedDefaultTests(unittest.TestCase):
                     if reverse:
                         expected, actual = actual, expected
                     with self.subTest(kind=kind, field=field, reverse=reverse):
-                        with saved_copy_fixture(expected, actual, PROFILE) as (out, _, __):
+                        with saved_copy_fixture(expected, actual, PROFILE) as (out, _, __), patch.object(edit, 'EDIT_PROFILES', {PROFILE, PROFILE_115}):
                             with self.assertRaises(ValueError):
                                 edit.verify_live(out)
 
@@ -85,14 +87,14 @@ class SavedDefaultTests(unittest.TestCase):
                 owners(expected, kind)[1]['volume'] = value
             actual = deepcopy(expected)
             with self.subTest(value=value):
-                with saved_copy_fixture(expected, actual, PROFILE) as (out, _, __):
+                with saved_copy_fixture(expected, actual, PROFILE) as (out, _, __), patch.object(edit, 'EDIT_PROFILES', {PROFILE, PROFILE_115}):
                     self.assertEqual(edit.verify_live(out)['status'], 'verified')
         for value in (True, None, '1', -1):
             expected = saved_116()
             actual = deepcopy(expected)
             owners(actual, 'video')[1]['volume'] = value
             with self.subTest(invalid=repr(value)):
-                with saved_copy_fixture(expected, actual, PROFILE) as (out, _, __):
+                with saved_copy_fixture(expected, actual, PROFILE) as (out, _, __), patch.object(edit, 'EDIT_PROFILES', {PROFILE, PROFILE_115}):
                     with self.assertRaises(ValueError):
                         edit.verify_live(out)
         # A non-finite volume cannot reach a saved draft through the strict JSON
@@ -112,7 +114,7 @@ class SavedDefaultTests(unittest.TestCase):
             actual = deepcopy(expected)
             del owners(actual, 'video')[1]['volume']
             with self.subTest(profile=profile):
-                with saved_copy_fixture(expected, actual, profile) as (out, _, __):
+                with saved_copy_fixture(expected, actual, profile) as (out, _, __), patch.object(edit, 'EDIT_PROFILES', {PROFILE, PROFILE_115}):
                     with self.assertRaises(ValueError):
                         edit.verify_live(out)
 
@@ -252,7 +254,7 @@ class CurveAverageTests(unittest.TestCase):
         for target_us in (1266666, 1266667):
             expected, actual = curve_pair(target_us, FLOORED)
             with self.subTest(target_us=target_us):
-                with saved_copy_fixture(expected, actual, PROFILE) as (out, _, __):
+                with saved_copy_fixture(expected, actual, PROFILE) as (out, _, __), patch.object(edit, 'EDIT_PROFILES', {PROFILE, PROFILE_115}):
                     result = edit.verify_live(out)
                     self.assertEqual(result['status'], 'verified')
                     changes = result['native_curve_speed_recomputations']
@@ -265,7 +267,7 @@ class CurveAverageTests(unittest.TestCase):
     def test_the_115_divisor_is_not_accepted_on_this_runtime(self):
         # 2000000/1266667 is what 11.5 would have written; 11.6 never did.
         expected, actual = curve_pair(1266667, 2000000 / 1266667)
-        with saved_copy_fixture(expected, actual, PROFILE) as (out, _, __):
+        with saved_copy_fixture(expected, actual, PROFILE) as (out, _, __), patch.object(edit, 'EDIT_PROFILES', {PROFILE, PROFILE_115}):
             with self.assertRaises(ValueError):
                 edit.verify_live(out)
 
@@ -289,7 +291,7 @@ class CurveAverageTests(unittest.TestCase):
             else:
                 actual['tracks'][0]['segments'][0]['speed'] = expected['tracks'][0]['segments'][0]['speed']
             with self.subTest(case=case):
-                with saved_copy_fixture(expected, actual, profile) as (out, _, __):
+                with saved_copy_fixture(expected, actual, profile) as (out, _, __), patch.object(edit, 'EDIT_PROFILES', {PROFILE, PROFILE_115}):
                     with self.assertRaises(ValueError):
                         edit.verify_live(out)
 

@@ -19,7 +19,7 @@ from runtime_profiles import PROFILES, validate_identity
 from build_toolchain import select_toolchain, compile_command
 BRIDGE = ROOT / 'bridge'
 APP = Path('/Applications/VideoFusion-macOS.app')
-EXPECTED_CODEC_SHA = 'b6533eb5eb1eea58dfa74fb1d16d3bb580970fe881f587605d358af1745f971d'
+EXPECTED_CODEC_SHA = '0ab125cdfa4b81f2540381d2bb0f19f885e46e204437d3d3c77efe1263cc2f6f'
 
 
 def require(value, message):
