@@ -60,7 +60,7 @@ def fixture(target, y=.4, start=0, kind='text'):
         content = json.loads(text['content'])
         for style in content['styles']:
             style['font']['path'] = font
-        text['content'] = json.dumps(content)
+        text['content'] = json.dumps(content, ensure_ascii=False, separators=(',', ':'))
     return timeline
 
 
