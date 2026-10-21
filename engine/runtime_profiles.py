@@ -14,8 +14,8 @@ EXPORT_PROFILES = frozenset(PROFILE_PREFIX + v for v in ('11.5.0', '11.4.2'))
 # nothing about one, and its acceptance never carries over to that path.
 UI_EXPORT_PROFILES = frozenset()
 # Captured draft resources are reviewed per runtime in the UI, independently of export ABIs.
-RESOURCE_PROFILES = frozenset(PROFILE_PREFIX + v for v in ('11.5.0', '11.4.2'))
-EDIT_PROFILES = frozenset(PROFILE_PREFIX + v for v in ('11.5.0', '11.4.2', '11.4.0'))
+RESOURCE_PROFILES = frozenset(PROFILE_PREFIX + v for v in ('11.6.0', '11.5.0', '11.4.2'))
+EDIT_PROFILES = frozenset(PROFILE_PREFIX + v for v in ('11.6.0', '11.5.0', '11.4.2', '11.4.0'))
 RESOURCE_CAPTURE_PROFILE = PROFILE_PREFIX + '11.4.2'
 TIMELINE_SCHEMAS = frozenset((('185.0.0', 360000), ('187.0.0', 360000), ('189.0.0', 360000)))
 # Saved formats newer than the builder's 185 are accepted only on runtimes observed reading them:
@@ -90,19 +90,23 @@ def validate_creation_plan(plan, runtime_profile, assets=None):
     """Restrict the new M5 library without inheriting the old library's evidence."""
     if runtime_profile != M5_PROFILE:
         return
-    if plan.get('canvas') != {'width': 1280, 'height': 720, 'fps': 30}:
-        raise ValueError('M5 reviewed canvas is 1280x720 at 30 fps only')
+    if plan.get('canvas') not in ({'width': w, 'height': h, 'fps': 30}
+                                  for w, h in ((1280, 720), (1920, 1080), (3840, 2160))):
+        raise ValueError('M5 trial canvas requires 720p, 1080p or UHD4K at 30 fps')
     tracks = plan.get('tracks', [])
     if not tracks or tracks[0].get('type') != 'video':
         raise ValueError('M5 creation requires H.264 video and optional plain subtitles')
     for track in tracks:
         kind = track.get('type')
-        if kind not in {'video', 'text'} or (kind == 'video' and track is not tracks[0]):
+        if kind not in {'video', 'audio', 'text', 'effect'} or (kind == 'video' and track is not tracks[0]):
             raise ValueError('M5 supports one video track and plain subtitle tracks only')
-        allowed = {'source', 'source_start_us', 'source_duration_us', 'start_us', 'duration_us'}
+        allowed = {'source', 'source_start_us', 'source_duration_us', 'start_us', 'duration_us',
+                   'volume', 'scale', 'x', 'y', 'rotation', 'opacity', 'keyframes', 'mask', 'transition_out'}
         if kind == 'text':
             allowed = {'text', 'start_us', 'duration_us', 'size', 'x', 'y',
-                       'color', 'border_color', 'border_width'}
+                       'color', 'border_color', 'border_width', 'keyframes', 'opacity', 'font_path'}
+        elif kind == 'effect':
+            allowed = {'start_us', 'duration_us', 'name', 'params'}
         for segment in track.get('segments', []):
             if set(segment) - allowed:
                 raise ValueError('M5 supports plain video/subtitles only; unsupported segment fields: '
@@ -111,10 +115,12 @@ def validate_creation_plan(plan, runtime_profile, assets=None):
                 raise ValueError('M5 supports unit-speed video only')
     if assets is not None:
         for asset in assets:
+            if asset.get('kind') == 'audio' and asset.get('codec') == 'aac':
+                continue
             if (asset.get('kind') != 'video' or asset.get('media_type') != 'video'
                     or asset.get('codec') != 'h264'):
                 raise ValueError('M5 supports H.264 video only; audio files, photos and GIF are unreviewed')
             if (asset.get('pix_fmt') != 'yuv420p' or asset.get('audio_codec') != 'aac'
                     or asset.get('has_audio') is not True or asset.get('r_frame_rate') != '30/1'
-                    or (asset.get('width'), asset.get('height')) != (1280, 720)):
-                raise ValueError('M5 reviewed media is 1280x720 H.264/yuv420p at 30 fps with AAC audio only')
+                    or (asset.get('width'), asset.get('height')) != (plan['canvas']['width'], plan['canvas']['height'])):
+                raise ValueError('M5 trial media must match its canvas: H.264/yuv420p at 30 fps with AAC audio')

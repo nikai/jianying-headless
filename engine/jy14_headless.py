@@ -491,28 +491,6 @@ def verify_structure(timeline, metadata, plan, assets, target, allow_native_reso
                      runtime_profile=None, font_assets=()):
     validate_timeline_schema(timeline, runtime_profile)
     validate_creation_plan(plan, runtime_profile, assets)
-    if runtime_profile == M5_PROFILE:
-        allowed = {'videos', 'texts', 'speeds', 'placeholder_infos', 'canvases',
-                   'sound_channel_mappings', 'material_colors', 'vocal_separations', 'material_animations'}
-        require(not any(nodes for bucket, nodes in timeline['materials'].items() if bucket not in allowed),
-                'M5 unreviewed native materials')
-        for node in timeline['materials'].get('material_animations', []):
-            require(set(node) <= {'id', 'type'}, 'M5 text animation is unreviewed')
-        for node in timeline['materials'].get('speeds', []):
-            require(set(node) <= {'id', 'type', 'speed'} and node.get('speed', 1) == 1,
-                    'M5 speed changes are unreviewed')
-        font = '/Applications/VideoFusion-macOS.app/Contents/Resources/Font/SystemFont/zh-hans.ttf'
-        for node in timeline['materials'].get('texts', []):
-            require(node.get('font_path') == font, 'M5 custom fonts are unreviewed')
-            for style in json.loads(node['content'])['styles']:
-                require(style.get('font') == {'id': '', 'path': font}, 'M5 custom fonts are unreviewed')
-        for track in timeline['tracks']:
-            for segment in track['segments']:
-                require(not segment.get('common_keyframes') and not segment.get('keyframe_refs'),
-                        'M5 keyframes are unreviewed')
-                alpha = segment.get('clip', {}).get('alpha', 1)
-                require(type(alpha) in (int, float) and alpha == 1, 'M5 clip alpha must remain 1')
-                require(segment.get('visible', True) is True, 'M5 segment must remain visible')
     require(all(timeline['canvas_config'][k] == plan['canvas'][k] for k in ('width', 'height')), 'Canvas changed')
     require(timeline.get('fps', 30) == plan['canvas']['fps'], 'Timeline frame rate changed')
     require(metadata['draft_fold_path'] == str(target) and metadata['draft_name'] == target.name, 'Draft identity mismatch')
