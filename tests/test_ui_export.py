@@ -13,6 +13,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'engine'))
@@ -31,7 +32,7 @@ def probe(frames, brand='qt  ', duration='2.000000', audio=True, **video):
 
 
 class ContainerTests(unittest.TestCase):
-    def test_the_editors_quicktime_branded_mp4_is_accepted_and_reported(self):
+    def test_the_editors_quicktime_branded_mov_is_accepted_and_reported(self):
         media = ui_export.validate_container(probe(60), SETTINGS, 2_000_000, True)
         self.assertEqual(media['major_brand'], 'qt  ')
         self.assertEqual(media['container_writer'], 'Jianying export dialog')
@@ -78,14 +79,86 @@ class ContainerTests(unittest.TestCase):
 
 
 class ProfileTests(unittest.TestCase):
-    def test_no_ui_export_profile_is_enabled_for_the_local_fork(self):
+    def test_only_the_verified_m5_ui_export_profile_is_enabled(self):
         self.assertEqual(profiles.UI_EXPORT_PROFILES,
-                         frozenset())
+                         frozenset((profiles.M5_PROFILE,)))
 
     def test_this_set_is_separate_from_the_headless_export_set(self):
         self.assertFalse(profiles.UI_EXPORT_PROFILES & profiles.EXPORT_PROFILES)
         self.assertEqual(profiles.EXPORT_PROFILES,
                          frozenset(profiles.PROFILE_PREFIX + v for v in ('11.5.0', '11.4.2')))
+
+
+class PlanFormatTests(unittest.TestCase):
+    def test_verify_keeps_decode_frame_and_draft_checks_on_the_formal_path(self):
+        import jy14_headless as j
+        import subprocess
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary); build = folder / 'build'; build.mkdir()
+            (build / 'build.json').write_text('{}')
+            target = folder / 'draft'; target.mkdir()
+            job = folder / 'job'; job.mkdir()
+            output = folder / 'synthetic.mov'; output.write_bytes(b'synthetic encoded bytes')
+            runtime = {'runtime_profile': profiles.M5_PROFILE, 'libvideoeditor_sha256': profiles.PROFILES['11.6.0']}
+            document = {'schema': ui_export.PLAN_SCHEMA, 'ui_used': True, 'build': str(build),
+                'build_sha256': j.nd.digest(build / 'build.json'), 'draft': str(target), 'draft_name': target.name,
+                'runtime': runtime, 'settings': SETTINGS, 'duration_us': 2000000, 'audio_expected': True,
+                'expected_output': str(output), 'readback_before_export': {'status': 'verified'}}
+            j.write(job / 'plan.json', document)
+            timeline = {'duration': 2000000, 'tracks': [], 'materials': {}}
+            with patch.object(ui_export, 'live_record', return_value=(build, {'target': str(target)}, {'status': 'verified'})) as live, \
+                    patch.object(ui_export, 'expectations', return_value=(timeline, runtime, SETTINGS, True)), \
+                    patch.object(ui_export, 'probe', return_value=probe(60)), \
+                    patch.object(ui_export.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, b'', b'')) as decode:
+                result = ui_export.verify(job)
+            live.assert_called_once_with(build)
+            self.assertEqual(result['media']['frames'], 60)
+            self.assertTrue(result['full_decode_passed'])
+            self.assertIn('-xerror', decode.call_args.args[0])
+            self.assertEqual(result['renderer'], 'Jianying export dialog')
+            self.assertTrue((job / 'attempt-001/result.json').is_file())
+
+    def test_changed_frozen_build_is_rejected_before_live_acceptance(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            with patch.object(ui_export.j, 'read_json', return_value={'schema': 'jy14-headless-build/v1'}), \
+                    patch.object(ui_export.j, 'verify_build', side_effect=ValueError('snapshot changed')), \
+                    patch.object(ui_export.j, 'verify_live') as live:
+                with self.assertRaisesRegex(ValueError, 'snapshot changed'):
+                    ui_export.live_record(folder)
+                live.assert_not_called()
+
+    def test_verify_rejects_a_plan_bound_to_another_draft(self):
+        import jy14_headless as j
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary); build = folder / 'build'; build.mkdir()
+            (build / 'build.json').write_text('{}')
+            job = folder / 'job'; job.mkdir()
+            j.write(job / 'plan.json', {'schema': ui_export.PLAN_SCHEMA, 'ui_used': True,
+                'build': str(build), 'build_sha256': j.nd.digest(build / 'build.json'),
+                'draft': str(folder / 'other-draft'), 'draft_name': 'other-draft'})
+            with patch.object(ui_export, 'live_record', return_value=(build, {'target': str(folder / 'actual-draft')}, {})), \
+                    patch.object(ui_export, 'expectations') as expectations:
+                with self.assertRaisesRegex(ValueError, 'draft binding changed'):
+                    ui_export.verify(job)
+                expectations.assert_not_called()
+
+    def test_plan_requests_the_mov_format_actually_exported_by_the_editor(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            build = root / 'build'; build.mkdir()
+            (build / 'build.json').write_text('{}')
+            target = root / 'draft'; target.mkdir()
+            record = {'target': str(target)}
+            report = {'status': 'verified'}
+            timeline = {'duration': 4_000_000}
+            job = root / 'work' / 'export'
+            with patch.object(ui_export, 'live_record', return_value=(build, record, report)), \
+                    patch.object(ui_export, 'expectations', return_value=(timeline, {}, SETTINGS, True)):
+                document = ui_export.plan(build, job)
+            self.assertEqual(document['dialog_settings_required']['格式'], 'MOV')
+            self.assertTrue(document['expected_output'].endswith('/draft.mov'))
+            self.assertTrue(document['ui_used'])
 
 
 class DraftChangeTests(unittest.TestCase):

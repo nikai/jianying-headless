@@ -9,7 +9,8 @@
   历史适配器曾使用 Apache-2.0 的 <https://github.com/GuanYixuan/pyJianYingDraft>。
   完整声明和许可证保留在核心项目。
 - FFmpeg、Python 和 Xcode 是外部工具，各自条款仍适用。基础字幕使用默认系统字体，
-  不需要可选字体解析器；自定义字体和音效不在当前能力范围内。
+  不需要可选字体解析器；显式静态 TTF 用核心 `requirements-fonts.txt` 钉版 fontTools。
+  独立 AAC 是本地文件依赖；固定效果资源可能依赖原生缓存，不随包分发。
 - 现有源码保留历史 ASR、Openverse 和音频处理辅助脚本；它们不属于本地适配的操作流程，
   本页不提供安装或执行指引。Skill 不包含凭据，也不从聊天、剪贴板或浏览器寻找令牌。
 - 历史第三方音效属于各自作者，不在代码许可范围内。CC BY / CC BY-NC 需要署名，

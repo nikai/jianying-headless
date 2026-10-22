@@ -27,21 +27,18 @@ class RuntimeProfiles(unittest.TestCase):
         self.assertEqual(profiles.PROFILES['11.6.0'],
                          '1748fa32a09a967b46515a3acb04863a917b445682d06a64c0e9f0a739db01f1')
 
-    def test_m5_has_only_plain_creation_capabilities(self):
-        p=profiles.PROFILE_PREFIX+'11.6.0'
-        for allowed in (profiles.RESOURCE_PROFILES, profiles.EDIT_PROFILES,
-                        profiles.EXPORT_PROFILES, profiles.UI_EXPORT_PROFILES):
-            self.assertNotIn(p, allowed)
-        with self.assertRaises(ValueError):
-            profiles.validate_resource_profile(p,profiles.RESOURCE_CAPTURE_PROFILE)
+    def test_m5_capabilities_keep_native_export_closed(self):
+        p = profiles.M5_PROFILE
+        for allowed in (profiles.RESOURCE_PROFILES, profiles.EDIT_PROFILES, profiles.UI_EXPORT_PROFILES):
+            self.assertIn(p, allowed)
+        self.assertNotIn(p, profiles.EXPORT_PROFILES)
+        profiles.validate_resource_profile(p, profiles.RESOURCE_CAPTURE_PROFILE)
         for command in profiles.M5_COMMANDS:
-            profiles.validate_command(command,p)
+            profiles.validate_command(command, p)
         for other in ('jy14-headless-macos-11.5.0', 'jy14-headless-macos-11.4.2', None):
-            with self.subTest(runtime=other), self.assertRaises(ValueError):
-                profiles.validate_command('doctor',other)
-        for command in ('edit', 'export', 'ui-export', 'create', 'resume-publish', 'from-compiled', 'cached-sound'):
-            with self.subTest(command=command), self.assertRaises(ValueError):
-                profiles.validate_command(command,p)
+            with self.assertRaises(ValueError): profiles.validate_command('doctor', other)
+        for command in ('export', 'create', 'resume-publish', 'from-compiled', 'cached-sound'):
+            with self.assertRaises(ValueError): profiles.validate_command(command, p)
 
     def test_mismatched_hash_build_bundle_and_unknown_version_rejected(self):
         for version in ('11.6.0','11.5.0','11.4.2'):
@@ -120,7 +117,7 @@ class RuntimeProfiles(unittest.TestCase):
                 profiles.saved_schema_upgrade(before,after,runtime)
         with self.assertRaises(ValueError):
             profiles.saved_schema_upgrade(old,saved,profiles.PROFILE_PREFIX+'11.5.0')
-        self.assertNotIn(runtime,profiles.EDIT_PROFILES)
+        self.assertIn(runtime,profiles.EDIT_PROFILES)
         with self.assertRaises(ValueError):
             profiles.saved_schema_upgrade(dict(old,new_version="187.0.0"),saved,runtime)
 
@@ -152,9 +149,9 @@ class M5CreationBoundary(unittest.TestCase):
             bad = deepcopy(self.plan); bad['tracks'][1]['type'] = kind
             yield kind, bad
         for kind, fields in (('video', {'keyframes': {}, 'mask': {}, 'transition_out': {},
-                                      'speed': 1.5, 'volume': 0.5, 'scale': 2, 'opacity': 0.5}),
-                             ('text', {'font_path': '/unused/font.ttf', 'text_effect': 'test',
-                                       'keyframes': {}, 'opacity': 0.5})):
+                                      'speed': 1.5}),
+                             ('text', {'font_path': '/unused/font.otf', 'text_effect': 'test',
+                                       'keyframes': {}})):
             for field, value in fields.items():
                 bad = deepcopy(self.plan)
                 bad['tracks'][0 if kind == 'video' else 1]['segments'][0][field] = value
@@ -226,6 +223,20 @@ class M5CreationBoundary(unittest.TestCase):
                     self.assertEqual(self.j.verify_structure(actual, metadata, self.plan, assets, target,
                                                             runtime_profile=self.profile), [])
 
+    def test_planned_opacity_and_video_keyframes_are_verified_not_ignored(self):
+        from copy import deepcopy
+        self.plan['tracks'][0]['segments'][0]['opacity'] = .6
+        self.plan['tracks'][0]['segments'][0]['keyframes'] = {'x': [
+            {'at_us': 0, 'value': 0}, {'at_us': 4000000, 'value': .25}]}
+        timeline, metadata, assets, target = self.plain_timeline()
+        self.j.verify_structure(timeline, metadata, self.plan, assets, target, runtime_profile=self.profile)
+        for mutation in ('opacity', 'keyframe'):
+            bad = deepcopy(timeline); segment = bad['tracks'][0]['segments'][0]
+            if mutation == 'opacity': segment['clip']['alpha'] = .7
+            else: segment['common_keyframes'][0]['keyframe_list'][1]['values'][0] = .5
+            with self.assertRaises(ValueError):
+                self.j.verify_structure(bad, metadata, self.plan, assets, target, runtime_profile=self.profile)
+
     def test_hidden_or_transparent_video_and_text_are_rejected(self):
         from copy import deepcopy
         timeline, metadata, assets, target = self.plain_timeline()
@@ -252,15 +263,20 @@ class M5CreationBoundary(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'Recorded (source media changed|media facts differ)'):
                     self.j.verified_plan_assets(self.plan, [bad], self.profile)
 
-    def test_edit_inspection_and_both_verifiers_refuse_before_draft_access(self):
+    def test_unreviewed_edit_operations_fail_before_source_access(self):
         from unittest.mock import patch
         import native_edit as edit
-        with patch.object(self.j.nd, 'doctor', return_value={'runtime_profile': self.profile}), \
-                patch.object(self.j.nd, 'helper') as helper:
-            for operation in (edit.load_source, edit.verify_build, edit.verify_live):
-                with self.subTest(operation=operation.__name__), self.assertRaisesRegex(ValueError, 'profile'):
-                    operation('/does-not-exist')
-            helper.assert_not_called()
+        for op in ('create_compound', 'replace_media', 'duplicate_segment', 'remove_segment', 'set_text_font', 'set_filter_intensity'):
+            plan = {'schema': edit.SCHEMA, 'name': 'Joker-copy', 'source': {}, 'operations': [{'op': op}]}
+            with self.subTest(op=op), patch.object(self.j.nd, 'doctor', return_value={'runtime_profile': self.profile}), \
+                    patch.object(self.j, 'read_json', return_value=plan), patch.object(edit, 'load_source') as load:
+                with self.assertRaisesRegex(ValueError, 'M5 edits support'): edit.build('unused', 'unused')
+                load.assert_not_called()
+        for field in ('speed', 'visible', 'opacity', 'scale', 'x', 'y', 'rotation'):
+            with self.assertRaisesRegex(ValueError, 'M5 segment edits'):
+                edit.validate_m5_operations([{'op': 'set_segment', 'set': {field: 1}}], self.profile)
+        edit.validate_m5_operations([{'op': 'replace_text'}, {'op': 'set_segment', 'set': {'volume': .25}}], self.profile)
+        edit.validate_m5_operations([{'op': 'create_compound'}], 'jy14-headless-macos-11.5.0')
 
     def test_verifiers_reject_unreviewed_recorded_plans_before_codec(self):
         import tempfile
@@ -287,28 +303,67 @@ class M5CreationBoundary(unittest.TestCase):
 
     def test_readback_rejects_unplanned_native_effects_fonts_and_animation(self):
         from copy import deepcopy
-        timeline = {'new_version': '189.0.0', 'version': 360000, 'materials': {}, 'tracks': []}
-        cases = [
-            ('audios', [{'id': 'audio'}], 'unreviewed native materials'),
-            ('drafts', [{'id': 'compound'}], 'unreviewed native materials'),
-            ('common_mask', [{'id': 'mask'}], 'unreviewed native materials'),
-            ('video_effects', [{'id': 'effect'}], 'unreviewed native materials'),
-            ('material_animations', [{'id': 'animation', 'type': 'sticker_animation', 'animations': [{}]}], 'text animation'),
-            ('speeds', [{'id': 'speed', 'curve_speed': {}}], 'speed changes'),
-            ('texts', [{'font_path': '/custom.ttf'}], 'custom fonts'),
-            ('texts', [{'font_path': '/Applications/VideoFusion-macOS.app/Contents/Resources/Font/SystemFont/zh-hans.ttf',
-                        'content': json.dumps({'styles': [{'font': {'id': '', 'path': '/custom.ttf'}}]})}], 'custom fonts'),
-        ]
-        for bucket, nodes, message in cases:
-            actual = deepcopy(timeline); actual['materials'][bucket] = nodes
-            with self.subTest(bucket=bucket), self.assertRaisesRegex(ValueError, 'M5 ' + message):
-                self.j.verify_structure(actual, {}, self.plan, [self.asset], Path('/unused'),
-                                        runtime_profile=self.profile)
+        timeline, metadata, assets, target = self.plain_timeline()
+        cases = []
+        for bucket in ('audios', 'drafts', 'common_mask', 'video_effects', 'transitions', 'effects'):
+            actual = deepcopy(timeline); actual['materials'][bucket] = [{'id': 'unplanned'}]
+            cases.append(actual)
+        for bucket, field, value in [('material_animations', 'animations', [{}]), ('speeds', 'curve_speed', {})]:
+            actual = deepcopy(timeline); actual['materials'][bucket][0][field] = value; cases.append(actual)
+        actual = deepcopy(timeline); actual['materials']['canvases'][0]['path'] = '/unplanned/background'; cases.append(actual)
+        actual = deepcopy(timeline); actual['tracks'][0]['segments'][0]['clip']['flip'] = {'horizontal': True}; cases.append(actual)
+        actual = deepcopy(timeline); actual['materials']['videos'][0]['width'] = 1920; cases.append(actual)
+        actual = deepcopy(timeline); actual['materials']['videos'][0]['has_audio'] = False; cases.append(actual)
+        actual = deepcopy(timeline); actual['materials']['texts'][0]['font_path'] = '/custom.ttf'; cases.append(actual)
         for field in ('common_keyframes', 'keyframe_refs'):
-            actual = deepcopy(timeline); actual['tracks'] = [{'segments': [{field: [{}]}]}]
-            with self.subTest(field=field), self.assertRaisesRegex(ValueError, 'M5 keyframes'):
-                self.j.verify_structure(actual, {}, self.plan, [self.asset], Path('/unused'),
-                                        runtime_profile=self.profile)
+            actual = deepcopy(timeline); actual['tracks'][0]['segments'][0][field] = [{}]; cases.append(actual)
+        for actual in cases:
+            with self.assertRaises(ValueError):
+                self.j.verify_structure(actual, metadata, self.plan, assets, target, runtime_profile=self.profile)
+
+    def test_new_matrix_and_precise_field_limits(self):
+        from copy import deepcopy
+        for w, h in ((1280, 720), (1920, 1080), (3840, 2160)):
+            plan = deepcopy(self.plan); plan['canvas'].update(width=w, height=h)
+            profiles.validate_creation_plan(plan, self.profile, [dict(self.asset, width=w, height=h)])
+        plan = deepcopy(self.plan)
+        plan['tracks'][0]['segments'][0].update(x=.1, y=-.1, scale=.8, rotation=15, opacity=.6, volume=.5,
+            keyframes={k: [{'at_us': 0, 'value': v}, {'at_us': 4000000, 'value': v}] for k,v in
+                       [('x', .1), ('y', -.1), ('scale', .8), ('rotation', 15), ('opacity', .6), ('volume', .5)]})
+        profiles.validate_creation_plan(plan, self.profile, [self.asset])
+        for kind, field, value in [('audio', 'keyframes', {}), ('text', 'keyframes', {}),
+                                  ('text', 'font_path', '/unused/font.otf')]:
+            bad = deepcopy(self.plan); bad['tracks'][1]['type'] = kind; bad['tracks'][1]['segments'][0][field] = value
+            with self.assertRaises(ValueError): profiles.validate_creation_plan(bad, self.profile)
+        for params in ({'range': .2}, {'speed': .5}, {'other': .15}, None):
+            bad = deepcopy(self.plan); bad['tracks'].append({'type': 'effect', 'segments': [{'name': 'light-shake', 'params': params}]})
+            with self.assertRaises(ValueError): profiles.validate_creation_plan(bad, self.profile)
+        profiles.validate_creation_plan(self.plan, self.profile, [self.asset, {'kind': 'audio', 'media_type': 'music',
+            'codec': 'aac', 'audio_codec': 'aac', 'has_audio': True}])
+
+    def test_edit_rejects_complex_and_old_schema_sources(self):
+        from unittest.mock import patch
+        from copy import deepcopy
+        import native_edit as edit
+        timeline, _, assets, target = self.plain_timeline()
+        with patch.object(self.j, 'probe', return_value=assets[0]):
+            edit.validate_m5_source(timeline, target, self.profile)
+            for bucket in ('drafts', 'common_mask', 'video_effects'):
+                bad = deepcopy(timeline); bad['materials'][bucket] = [{'id': 'complex'}]
+                with self.assertRaises(ValueError): edit.validate_m5_source(bad, target, self.profile)
+            bad = deepcopy(timeline); bad['new_version'] = '187.0.0'
+            with self.assertRaises(ValueError): edit.validate_m5_source(bad, target, self.profile)
+
+    def test_explicit_static_font_requires_glyph_coverage(self):
+        import importlib.util
+        import native_fonts
+        font = Path('/System/Library/Fonts/Monaco.ttf')
+        if not font.is_file() or importlib.util.find_spec('fontTools') is None:
+            self.skipTest('Local font coverage requires the optional pinned fontTools and Monaco')
+        native_fonts.verify_glyphs(font, 'Joker 123')
+        with self.assertRaisesRegex(ValueError, 'missing glyphs'):
+            native_fonts.verify_glyphs(font, '\U0010ffff')
+
 
 
 class BuildRuntimeProvenance(unittest.TestCase):

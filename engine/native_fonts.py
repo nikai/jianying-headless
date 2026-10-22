@@ -103,6 +103,15 @@ def ordinary_font(material, obj, target):
                   'Text material and rich-text font paths disagree')
 
 
+def verify_glyphs(source, text):
+    """M5 explicit local-font assignment must cover every visible character."""
+    from fontTools.ttLib import TTFont
+    with TTFont(source, lazy=False, checkChecksums=0) as font:
+        cmap = font.getBestCmap() or {}
+        missing = {ord(c) for c in text if not c.isspace() and ord(c) not in cmap}
+    require(not missing, 'Local font is missing glyphs: ' + ', '.join('U+%04X' % c for c in sorted(missing)))
+
+
 def asset_for(source):
     asset = inspect_font(source)
     asset['relative'] = 'Resources/headless-fonts/' + asset['sha256'] + '.' + asset['format']

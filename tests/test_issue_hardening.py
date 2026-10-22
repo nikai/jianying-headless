@@ -76,6 +76,38 @@ class EditProfileGuardTests(unittest.TestCase):
         source.assert_not_called()
 
 
+    def test_m5_edit_verifiers_reject_missing_or_different_library_before_codec_access(self):
+        profile = 'jy14-headless-macos-11.6.0'
+        runtime = {'runtime_profile': profile, 'libvideoeditor_sha256': 'a' * 64}
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            for captured in (None, {}, {'libvideoeditor_sha256': 'b' * 64}):
+                record = {'runtime_profile': profile, 'runtime': captured}
+                (folder / 'build.json').write_text(json.dumps(record))
+                for operation in (native_edit.verify_build, native_edit.verify_live):
+                    with self.subTest(captured=captured, operation=operation.__name__), \
+                            patch.object(j.nd, 'doctor', return_value=runtime), \
+                            patch.object(j.nd, 'helper') as helper:
+                        with self.assertRaisesRegex(ValueError, 'Build editor library differs'):
+                            operation(folder)
+                        helper.assert_not_called()
+
+    def test_m5_edit_verifiers_reject_a_different_installed_profile(self):
+        profile = 'jy14-headless-macos-11.6.0'
+        old = 'jy14-headless-macos-11.5.0'
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            for current, recorded in ((profile, old), (old, profile)):
+                (folder / 'build.json').write_text(json.dumps({'runtime_profile': recorded}))
+                for operation in (native_edit.verify_build, native_edit.verify_live):
+                    with self.subTest(current=current, recorded=recorded, operation=operation.__name__), \
+                            patch.object(j.nd, 'doctor', return_value={'runtime_profile': current}), \
+                            patch.object(j.nd, 'helper') as helper:
+                        with self.assertRaisesRegex(ValueError, 'Build runtime differs'):
+                            operation(folder)
+                        helper.assert_not_called()
+
+
 class RuntimeReportTests(unittest.TestCase):
     def test_missing_installation_never_leaks_path(self):
         result = runtime_report.report(Path('/private-placeholder/no-app'))

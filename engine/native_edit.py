@@ -18,7 +18,7 @@ import time
 import jy14_headless as j
 import native_compound as compound
 import native_fonts as fonts
-from runtime_profiles import EDIT_PROFILES, validate_timeline_schema, saved_schema_upgrade
+from runtime_profiles import M5_PROFILE, EDIT_PROFILES, validate_timeline_schema, saved_schema_upgrade
 
 SCHEMA = 'jy14-edit-plan/v1'
 BUILD_SCHEMA = 'jy14-edit-build/v1'
@@ -76,6 +76,53 @@ def mirrors(folder, timeline_id):
             folder / 'Timelines' / timeline_id / 'template-2.tmp']
 
 
+def validate_m5_operations(operations, runtime_profile):
+    if runtime_profile != M5_PROFILE:
+        return
+    j.require(isinstance(operations, list) and operations, 'M5 edit operations are required')
+    for operation in operations:
+        j.require(isinstance(operation, dict) and operation.get('op') in {'replace_text', 'set_segment'},
+                  'M5 edits support replace_text and set_segment only')
+        if operation['op'] == 'set_segment':
+            values = operation.get('set')
+            j.require(isinstance(values, dict) and values and not set(values) -
+                      {'start_us', 'duration_us', 'source_start_us', 'source_duration_us', 'volume'},
+                      'M5 segment edits support timing, source trim and volume only')
+
+
+def validate_m5_source(timeline, source, runtime_profile, media_root=None):
+    """Only basic single-timeline H.264/AAC and ordinary text can be copied."""
+    if runtime_profile != M5_PROFILE:
+        return
+    validate_timeline_schema(timeline, runtime_profile)
+    canvas = timeline.get('canvas_config', {})
+    plan = {'canvas': {'width': canvas.get('width'), 'height': canvas.get('height'),
+                       'fps': timeline.get('fps', 30)}, 'tracks': []}
+    index = material_index(timeline)
+    assets = {}
+    for track in timeline.get('tracks', []):
+        j.require(track['type'] in {'video', 'text'}, 'M5 edit source requires basic video/text tracks')
+        specs = []
+        for segment in track['segments']:
+            material = index[segment['material_id']][1]
+            spec = {'duration_us': segment['target_timerange']['duration']}
+            if track['type'] == 'video':
+                path = j.native_media_path(material.get('path', ''), source)
+                if media_root is not None and source in path.parents:
+                    path = media_root / path.relative_to(source)
+                if path not in assets:
+                    assets[path] = j.probe(path)
+                j.require(material.get('type') == 'video', 'M5 edit source must be ordinary H.264 video')
+                j.require((material.get('width'), material.get('height')) ==
+                          (plan['canvas']['width'], plan['canvas']['height']) and material.get('has_audio', True) is True,
+                          'M5 edit media dimensions/audio differ from the source canvas')
+            j.require(segment.get('speed', 1) == 1, 'M5 edit source speed is unreviewed')
+            specs.append(spec)
+        plan['tracks'].append({'type': track['type'], 'segments': specs})
+    j.validate_creation_plan(plan, runtime_profile, assets.values())
+    j.validate_m5_materials(timeline, plan, source)
+
+
 def load_source(value):
     runtime = j.nd.doctor()
     j.require(runtime['runtime_profile'] in EDIT_PROFILES,
@@ -86,6 +133,7 @@ def load_source(value):
     before = j.files_manifest(source)
     timeline = helper._decrypt_metadata_in_memory(source / 'draft_info.json')
     metadata = helper._decrypt_metadata_in_memory(source / 'draft_meta_info.json')
+    validate_m5_source(timeline, source, runtime['runtime_profile'])
     project = j.read_json(source / 'Timelines/project.json')
     compound.validate(timeline, basic_validation)
     for _, node in compound.graph(timeline):
@@ -400,6 +448,7 @@ def build(plan_path, out):
     j.keys(plan, {'schema', 'source', 'name', 'operations'}, 'Edit plan')
     j.require(plan.get('schema') == SCHEMA, 'Unsupported edit plan schema')
     j.keys(plan.get('source'), {'draft_path', 'draft_id', 'timeline_sha256'}, 'Source preconditions')
+    validate_m5_operations(plan.get('operations'), j.nd.doctor()['runtime_profile'])
     source, source_files, original, original_meta, project = load_source(plan['source']['draft_path'])
     j.require(plan['source'].get('draft_id') == original_meta['draft_id'] and
               plan['source'].get('timeline_sha256') == source_files['draft_info.json']['sha256'], 'Stale source preconditions')
@@ -511,6 +560,7 @@ def build(plan_path, out):
     j.write(out / 'source-timeline.json', original)
     j.write(out / 'expected-timeline.json', timeline)
     record = {'schema': BUILD_SCHEMA, 'runtime_manifest': j.nd.MANIFEST_SHA, 'runtime_profile': j.nd.doctor()['runtime_profile'],
+              'runtime': j.nd.doctor(),
               'name': target.name, 'target': str(target), 'draft_id': metadata['draft_id'], 'timeline_id': timeline['id'],
               'project_id': project['id'], 'duration_us': timeline['duration'], 'source': str(source),
               'source_files': source_files, 'files': j.files_manifest(folder), 'resources': resources,
@@ -528,16 +578,23 @@ def build(plan_path, out):
 
 
 def verify_build(out):
-    j.require(j.nd.doctor()['runtime_profile'] in EDIT_PROFILES, 'No reviewed edit profile for this runtime')
+    runtime = j.nd.doctor()
+    j.require(runtime['runtime_profile'] in EDIT_PROFILES, 'No reviewed edit profile for this runtime')
     out = Path(out).resolve(strict=True)
     record = j.read_json(out / 'build.json')
+    if M5_PROFILE in (runtime['runtime_profile'], record.get('runtime_profile')):
+        j.validate_build_runtime(record, runtime)
     j.require(record['schema'] == BUILD_SCHEMA and record['runtime_manifest'] == j.nd.MANIFEST_SHA, 'Edit build provenance differs')
     j.require(j.files_manifest(out / 'draft') == record['files'], 'Edited copy changed after build')
     j.require(j.nd.digest(out / 'plan.json') == record['plan_sha256'] and
               j.nd.digest(out / 'expected-timeline.json') == record['expected_timeline_sha256'], 'Edit plan/evidence changed')
     plan = j.read_json(out / 'plan.json')
+    validate_m5_operations(plan.get('operations'), runtime['runtime_profile'])
+    if runtime['runtime_profile'] == M5_PROFILE:
+        validate_m5_source(j.read_json(out / 'source-timeline.json'), Path(record['source']), M5_PROFILE)
     j.require(record['target'] == str(j.nd.DRAFT_ROOT / plan['name']), 'Edit copy target mismatch')
     expected = j.read_json(out / 'expected-timeline.json')
+    validate_m5_source(expected, Path(record['target']), runtime['runtime_profile'], out / 'draft')
     helper = j.nd.helper()
     j.require(helper._decrypt_metadata_in_memory(out / 'draft/draft_info.json') == expected, 'Edited timeline differs from expected full structure')
     compound.validate(expected, basic_validation)
@@ -873,18 +930,25 @@ def normalize_saved_curve_averages(expected, actual, runtime):
 
 
 def verify_live(out):
-    j.require(j.nd.doctor()['runtime_profile'] in EDIT_PROFILES, 'No reviewed edit profile for this runtime')
+    runtime = j.nd.doctor()
+    j.require(runtime['runtime_profile'] in EDIT_PROFILES, 'No reviewed edit profile for this runtime')
     out = Path(out).resolve(strict=True)
     record = j.read_json(out / 'build.json')
+    if M5_PROFILE in (runtime['runtime_profile'], record.get('runtime_profile')):
+        j.validate_build_runtime(record, runtime)
     j.require(record.get('schema') == BUILD_SCHEMA and record.get('runtime_manifest') == j.nd.MANIFEST_SHA, 'Unknown edit build')
     j.require(j.nd.digest(out / 'plan.json') == record['plan_sha256'] and
               j.nd.digest(out / 'expected-timeline.json') == record['expected_timeline_sha256'], 'Edit evidence changed')
     plan = j.read_json(out / 'plan.json')
+    validate_m5_operations(plan.get('operations'), runtime['runtime_profile'])
+    if runtime['runtime_profile'] == M5_PROFILE:
+        validate_m5_source(j.read_json(out / 'source-timeline.json'), Path(record['source']), M5_PROFILE)
     font_assets = fonts.recorded_assets(record, plan)
     target = j.nd.DRAFT_ROOT / plan['name']
     j.require(str(target) == record['target'] and target.is_dir() and not target.is_symlink(), 'Invalid edit copy path')
     helper = j.nd.helper()
     actual = helper._decrypt_metadata_in_memory(target / 'draft_info.json')
+    validate_m5_source(actual, target, runtime['runtime_profile'])
     metadata = helper._decrypt_metadata_in_memory(target / 'draft_meta_info.json')
     j.require(metadata['draft_id'] == record['draft_id'] and metadata['draft_fold_path'] == str(target), 'Edit copy identity changed')
     expected = j.read_json(out / 'expected-timeline.json')

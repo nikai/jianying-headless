@@ -1,17 +1,29 @@
 # Jianying Headless · M5 本地适配
 
-此 fork（[nikai/jianying-headless](https://github.com/nikai/jianying-headless)）只开放
-M5 已验证的新建 H.264 视频与普通字幕流程。来源为
-[mcncarl/jianying-headless](https://github.com/mcncarl/jianying-headless)，保留原许可证。
+此 fork（[nikai/jianying-headless](https://github.com/nikai/jianying-headless)）保留
+[mcncarl/jianying-headless](https://github.com/mcncarl/jianying-headless) 的原许可证，
+只从正式入口开放当前精确 M5 库已实测的能力。
 
-支持命令：`doctor`、`build`、`verify-build`、`publish`、`verify`。
-`publish` 仅登记到本机剪映首页，不上传网络；须先保存工作并正常退出剪映。
-入口拒绝编辑、资源特效、蒙版、转场、自定义字体、动画、复合片段、独立音效轨及所有导出
-（含 UI / Windows FFmpeg）。视频自带音频随源片保留，不等于独立音效能力已验收。
-计划只接受一条普通视频轨与普通字幕轨，视频保持 1×；不接受图片、GIF 或 HEVC。
-素材必须为 1280×720、30 fps 的 H.264/yuv420p，内嵌 AAC 音轨；画布固定 1280×720、30 fps。
-无音轨、其他像素格式、编码、尺寸与帧率均拒绝，不自动转码。
-回读要求视频和字幕可见、透明度为 1；省略这两个默认字段可接受，修改后拒绝。
+- 新建：720p / 1080p / UHD4K、30 fps，一条连续主视频轨可多段，普通字幕轨；
+  输入为同尺寸同帧率 H.264/yuv420p，内嵌 AAC，保持 1×。
+- 已验高级项：视频静态位置、缩放、旋转、透明度、音量和这六个通道的线性关键帧，
+  独立 AAC 轨的固定音量，静态本地 TTF 字体、六种蒙版、dissolve 和默认参数 light-shake。
+  字体依赖可选的钉版 fontTools，检查字形覆盖、文件字节与绑定；资源缺失即拒绝。
+- `edit` 只从基础 H.264/AAC/普通文字来源创建独立副本，操作限文字替换、片段时间、
+  原片裁切和音量；来源保持只读，仅支持 `185/189` schema。
+- `ui-export plan/verify` 为剪映自己的导出窗口制定计划、检查实际 MOV/H.264/AAC 文件，
+  不操作 UI。已验证的 MOV→MP4 无损转封装不重做画面，见 [导出说明](docs/UI-EXPORT.md)。
+
+命令为 `doctor/build/verify-build/publish/verify`、`edit`、`ui-export`；完整参数用 `--help`。
+`publish` 仅登记本机首页，不上传网络，须先保存工作并正常退出剪映。
+后台 native ExportService 仍关闭：未修改 helper 对当前库实际返回 ABI 不匹配。
+HEVC、照片/GIF、变速、未测画布/帧率、无音轨、非 AAC、字体动画、复合片段与 Windows
+均不从正式入口开放。旧 profile 的历史代码不构成当前能力许可。
+
+2026-10-22 八份合成样本的 UI 打开、播放、保存、退出、冷重开、MOV 导出和完整解码
+由宿主完成；单测不能代替这些事实。声音有增益量化检查，未声明主观听感通过。
+部分资源保存后依赖本机原生缓存，不能据此承诺草稿完全可迁移；不打包本机缓存。
+验收范围和限制见 [验证状态](docs/VERIFICATION.md)。M1 无剪映，仅部署源码/skill。
 
 ## 精确环境
 
@@ -40,9 +52,9 @@ python3 skills/yichen-jianying-edit/scripts/headless_draft.py doctor
 ```
 
 用已授权的本地 H.264 素材编写计划，格式参考
-[计划说明](skills/yichen-jianying-edit/references/headless-macos.md)，该页仅描述当前 M5 基础能力。
-普通字幕可用 `text`、`size`、`x`、`y`、`color`、`border_color`、`border_width`；
-视频只用 `source`、原片裁切与目标时间字段。
+[计划说明](skills/yichen-jianying-edit/references/headless-macos.md)，该页连接当前 M5 各条操作路径。
+普通字幕、静态 TTF、音频与高级字段见 [计划格式](skills/yichen-jianying-edit/references/plan-format.md)；
+编辑副本见 [编辑说明](skills/yichen-jianying-edit/references/edit-existing-macos.md)。
 
 ```bash
 python3 skills/yichen-jianying-edit/scripts/headless_draft.py build --plan /absolute/path/to/plan.json --out "$PWD/work/new-build"

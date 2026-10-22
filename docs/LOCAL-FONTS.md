@@ -1,5 +1,10 @@
 # Local fonts for new drafts and Hypit handoff
 
+Current M5 scope: explicit static TTF on new text only (Monaco UI-tested), with pinned
+fontTools, glyph coverage and byte/binding checks. OTF, variable fonts, font animation,
+font replacement in copy edits and Hypit conversion below are historical mechanisms,
+not enabled by the current wrapper. See [current scope](../README.md).
+
 New `jy14-headless-plan/v1` text segments accept an optional `font_path`:
 
 ```json

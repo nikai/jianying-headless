@@ -1,40 +1,31 @@
 ---
 name: yichen-jianying-edit
-description: 在 M5 精确匹配的剪映环境中新建 H.264 视频与普通字幕草稿，执行环境检查、隔离构建、本机首页登记及只读回读。需要另行检出 nikai/jianying-headless；编辑、特效、字体动画、复合片段、音效轨和导出不在本地适配范围。
+description: 在精确匹配的 M5 剪映环境新建视频字幕与已验高级样本、编辑独立草稿副本，并制定和核验剪映 UI MOV 导出。需要 nikai/jianying-headless 核心检出；后台原生导出与复合片段不开放。
 ---
 
-# M5 剪映基础草稿
+# M5 剪映草稿与 UI 导出
 
-交付可继续在剪映中打开的独立原生草稿。仅使用
-`doctor`、`build`、`verify-build`、`publish`、`verify` 五个命令。
-`publish` 是本机首页登记，不上传网络。所有导出（包括 UI 与 FFmpeg）、编辑既有工程、
-资源特效、字体、动画、复合片段、独立音效轨均被关闭；视频自带音频保留。
+1. 按 [安装说明](README.md) 定位核心项目。默认源码为
+   `~/repos/third-party/jianying-headless`，同仓入口自动定位；其他位置用
+   `JIANYING_HEADLESS_ROOT=/absolute/path/to/checkout` 明确指定，失效即停。
+2. 用 `scripts/headless_draft.py doctor` 核对 11.6.0 / `1748fa32…` 精确库和 codec。
+   完整签名仍由真实写入与 UI 导出验收校验；不修改固定 SHA 或用旧库结论替代。
+3. 新建时读 [流程](references/headless-macos.md) 和 [计划格式](references/plan-format.md)，
+   在新 `work/` 目录 `build` → `verify-build`。素材和输出范围以计划格式为准。
+   本地 TTF 必须有字形覆盖；资源缺失或哈希不符就报告，不下载替代包或改 catalog。
+4. 编辑时读 [编辑副本](references/edit-existing-macos.md)，走
+   `edit inspect` → 新计划 → `edit build` → `edit verify-build`。
+   只读原来源，范围限基础视频/文字及文字替换、时间、裁切、音量；复杂来源明确拒绝。
+5. 本机登记仅在任务授权且剪映已保存并退出时，用对应的 `publish` 或 `edit publish`。
+   这是本机首页登记，不上传网络；后续实际播放、保存、退出、冷重开由宿主完成。
+6. 导出时读 [UI 导出](references/export-macos.md)，走 `ui-export plan`，
+   宿主在剪映按计划导出本地 MOV，再 `ui-export verify`。关闭分享和云备份。
+   UI 由剪映渲染；可另做无损 MOV→MP4 转封装，不称为剪映 MP4 直出。
+7. 用对应 `verify` 回读；报告实际画面检查、增益测量、听感、冷重开和文件解码分别完成了什么。
+   `verified` 是结构检查，不自动证明实际画面和声音符合需求。
 
-## 执行
+后台 native ExportService、复合片段、变速、字体动画、HEVC、照片/GIF、未测帧率/画布、
+非 AAC 和 Windows 不从入口开放。历史参考文档不扩大当前许可。
+2026-10-22 的宿主原生验收只证明当前精确 M5 合成样本；M1 无剪映，只部署源码/skill。
 
-1. 按 [安装说明](README.md) 定位核心项目。同仓自动定位；独立 Skill 默认找
-   `~/repos/third-party/jianying-headless`。其他位置用 `JIANYING_HEADLESS_ROOT` 显式指定
-   绝对路径，不依赖 GUI 继承终端环境。Skill 不包含完整引擎或官方库。
-2. 运行 `python3 SKILL/scripts/headless_draft.py doctor`。当前只接受 M5 的 11.6.0 /
-   `1748fa32…` 官方库身份，工具链与完整指纹见核心 README。
-   旧官方 13281 / `a490d9a0…` 的编辑、效果、字体和导出验收不适用于当前库。
-   身份、组件或哈希不匹配时停止并报告原始错误。
-3. 用已授权的本地 H.264 视频和普通字幕准备计划，示例见核心 `docs/GETTING-STARTED.md`。
-   只用一条视频轨与普通文字轨，保持 1×。素材须为 1280×720、30 fps 的 H.264/yuv420p，
-   内嵌 AAC；画布也固定 1280×720、30 fps。无音轨或其他媒体变体会被拒绝，不自动转码。
-   需要先转码、转写或其他范围时向宿主报告，不在此流程里另开付费服务。
-4. 在本次 `work/` 新目录运行 `build` 和 `verify-build`。输出目录必须不存在；
-   保留源片和所有已有草稿。
-5. 仅当任务授权本机登记时运行 `publish`，先让用户保存工作并正常退出剪映。
-   未授权时交付隔离 build。失败保留现场，不自行重试或修改首页索引。
-6. 运行只读 `verify`。本地基础草稿支持 `185.0.0` → `189.0.0` 保存回读，
-   不继承旧库的 `187` 来源支持。回读要求透明度为 1、可见性为 true（省略时使用默认值）。
-   报告结构检查结果和未完成的原生验收。
-
-原生播放、人工听感、保存退出与冷重开是单独的验收项。只有实际完成后才能报告通过；
-`verified` 仅证明结构与素材一致。历史参考页中的高级命令不是当前能力许可。
-
-## 许可
-
-原创部分为个人学习和非商业使用许可；官方程序库、账号权益和素材许可分别适用。
-见 [依赖与来源](references/dependencies-and-notices.md)，不重新分发官方文件或私人素材。
+许可与依赖见 [说明](references/dependencies-and-notices.md)，官方库、字体与本机缓存不随源码分发。

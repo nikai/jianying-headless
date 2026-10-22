@@ -71,19 +71,35 @@ class PackagingTests(unittest.TestCase):
             self.assertIn('checkout unavailable', missing.stderr)
 
     def test_local_entry_rejects_all_unreviewed_commands(self):
-        for command in ('edit', 'export', 'ui-export', 'create', 'resume-publish',
+        for command in ('export', 'create', 'resume-publish',
                         'from-compiled', 'cached-sound'):
             result = subprocess.run([sys.executable, str(ENTRY), command],
                                     env=dict(os.environ, JIANYING_HEADLESS_ROOT=str(ROOT)),
                                     cwd=self.folder, capture_output=True, text=True, timeout=30)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn('M5 local entry supports only', result.stderr)
+            self.assertIn('M5 supports', result.stderr)
 
     def test_missing_configured_checkout_fails_before_output(self):
         result = self.cli(JIANYING_HEADLESS_ROOT=str(self.folder / 'missing'))
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('checkout unavailable', result.stderr)
         self.assertEqual(list(self.folder.iterdir()), [])
+
+    def test_edit_and_ui_export_forward_to_existing_backends(self):
+        import headless_runtime
+        for route, subcommand, backend in [('edit', 'verify', 'native_edit.py'),
+                                           ('edit', 'build', 'native_edit.py'),
+                                           ('ui-export', 'plan', 'ui_export.py'),
+                                           ('ui-export', 'verify', 'ui_export.py')]:
+            arguments = [str(ENTRY), route, subcommand, '--build', '/unused/build']
+            with self.subTest(route=route, subcommand=subcommand), \
+                    patch.object(sys, 'argv', arguments), \
+                    patch.dict(os.environ, {'JIANYING_HEADLESS_ROOT': str(ROOT)}), \
+                    patch.object(headless_runtime, 'doctor', return_value={'runtime_profile': 'jy14-headless-macos-11.6.0'}), \
+                    patch('runpy.run_path') as runner:
+                exec(compile(ENTRY.read_text(), str(ENTRY), 'exec'), {'__file__': str(ENTRY), '__name__': '__main__'})
+                runner.assert_called_once_with(str(ROOT / 'engine' / backend), run_name='__main__')
+                self.assertEqual(sys.argv[1:], [subcommand, '--build', '/unused/build'])
 
     def test_relative_checkout_is_rejected(self):
         result = self.cli(JIANYING_HEADLESS_ROOT='relative-checkout')

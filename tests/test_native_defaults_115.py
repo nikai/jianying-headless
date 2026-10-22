@@ -638,6 +638,7 @@ def saved_copy_fixture(expected, actual, profile=PROFILE):
             {'draft_id': draft_id, 'draft_fold_path': str(target)},
         ]})
         edit.j.write(out / 'plan.json', {'name': target.name})
+        edit.j.write(out / 'source-timeline.json', expected)
         edit.j.write(out / 'expected-timeline.json', expected)
         edit.j.write(out / 'build.json', {
             'schema': edit.BUILD_SCHEMA, 'runtime_manifest': edit.j.nd.MANIFEST_SHA,
@@ -649,7 +650,12 @@ def saved_copy_fixture(expected, actual, profile=PROFILE):
             'expected_timeline_sha256': edit.j.nd.digest(out / 'expected-timeline.json'),
         })
         helper = SimpleNamespace(_decrypt_metadata_in_memory=edit.j.read_json)
-        with patch.object(edit.j.nd, 'DRAFT_ROOT', draft_root), \
+        # Historical comparison fixtures intentionally isolate IO and capability
+        # admission. Current M5 admission/provenance has separate real validators.
+        with patch.object(edit, 'validate_m5_source'), \
+                patch.object(edit, 'validate_m5_operations'), \
+                patch.object(edit.j, 'validate_build_runtime'), \
+                patch.object(edit.j.nd, 'DRAFT_ROOT', draft_root), \
                 patch.object(edit.j.nd, 'helper', return_value=helper), \
                 patch.object(edit.j.nd, 'doctor', return_value={'runtime_profile': profile}):
             yield out, target, source

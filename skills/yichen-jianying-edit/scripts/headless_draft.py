@@ -33,9 +33,9 @@ def project_root():
 PROJECT_ROOT = project_root()
 BACKEND = PROJECT_ROOT / 'engine'
 PINS = {
-    'native_fonts.py': 'ddd7b4c1ecd55890bd645c14930f2c5f6687794691c2280daa32673e048da5e6',
-    'runtime_profiles.py': 'ad4249f74596617cf0e42564c58d528857669f838ae350fb8ee22f799e75524d',
-    'jy14_headless.py': 'f0842b3625e7c3b871ea0d13bfb9dc6daac670e9bc3150e062e054c5af0abd85',
+    'native_fonts.py': 'ed23b1db6b5cfd225a14100e04d5a62a947f02882dc3b4f31eb62fed43996995',
+    'runtime_profiles.py': 'ac82a006b55de6d98fd3d62a16432e8135a4c5672cddc27b3ce895c0dce4dcd4',
+    'jy14_headless.py': '3f71e18821875de9a74cc97426dfa874e709d878c9dd9a296fb9fba9d469c32c',
     'native_motion.py': '5d743caaa38c921779166e5663d36f72a0c3fdb130a690ac3942a7adcf62d6c2',
     'native_effects.py': 'c46b2fc9221dd613f220564b752e532f8f3753dd5595aaffc24f41d5236e4e97',
     'native_resources.py': '9bddfbb1cd688cebd69ac49f9bbf63c242522d9666a2ef7b412fe097113f68f2',
@@ -43,9 +43,9 @@ PINS = {
     'native-resource-catalog.json': '97af2df27463a9183fb1aa8f2ef534b37a644cb196f340fe88fdc50b456abde9',
     'native_compound.py': '3b173a3ce10e79e48c0f598b8fbb96bbf35d706db6039a0f68a9917b1717352f',
     'compound-blueprint.json': '9cba9435053280abf9072d5eaccb8586c841b11dac6854b32daf9cbdba76af8e',
-    'native_edit.py': '4f515112feced8dd3ba644b8fca20f4c55e2d67c4920ea413673833c531053df',
+    'native_edit.py': 'f5125bda3c3e3bd0a8e96046b51a0cf3bc5bcc53c836421eabde6ec075377d11',
     'native_export.py': '10191828c86c12396c77be5ac7a39ee712c4b5f1ac341a09f73418eac5d7202d',
-    'ui_export.py': '2d3d6a1812ef3c394e5404294dd5de17f828c3ec3e4548f604dcbff87e51186c',
+    'ui_export.py': '2031103bf756c2823a3856715b096b6ff224d1e0f74458ab6c6e9f800cb66d65',
     'native_export.cpp': 'c60da6c65f5bb7ac733b8f5b619401be3921f9254b953a55903d4e7566156379',
     'headless_runtime.py': 'e26cbfc52589cbab7092174b8a8dd8be2b3a753f3c3e95cc589cb2083e5e43d0',
     'blueprint.json': '91f7eddad5bff9af23eb88b53713c180e3e3d4054edd469140cfa9aa56bc1dc9',
@@ -61,11 +61,34 @@ for name, expected in PINS.items():
         raise SystemExit('Headless component changed or unavailable; reverify before updating the pin: ' + name)
 
 sys.path.insert(0, str(BACKEND))
-entrypoint = 'jy14_headless.py'
 command = sys.argv[1] if len(sys.argv) > 1 else None
-if command not in {None, '--help', '-h', 'doctor', 'build', 'verify-build', 'publish', 'verify'}:
-    raise SystemExit('M5 local entry supports only doctor/build/verify-build/publish/verify; '
-                     'editing, resources, compound and all exports are unavailable')
+if command in {None, '--help', '-h'}:
+    print("""M5 Jianying: exact-runtime local drafts and editor-dialog export acceptance.
+  doctor | build --plan PLAN --out NEW_BUILD | verify-build --build BUILD
+  publish --build BUILD --audit NEW_AUDIT | verify --build BUILD
+  edit inspect --draft SOURCE --out INSPECTION
+  edit build --plan PLAN --out NEW_BUILD
+  edit verify-build | publish | verify  (same --build/--audit options)
+  ui-export plan --build BUILD --out NEW_JOB
+  ui-export verify --job JOB [--video FILE] [--report NEW_REPORT]
+Use COMMAND --help for backend options. Editing always builds a separate copy.
+UI export renders in the editor; plan/verify do not operate the UI.
+Native ExportService, compounds and Windows are unavailable through this entry.""")
+    raise SystemExit(0)
 if os.name == 'nt':
     raise SystemExit('M5 local entry requires Apple Silicon macOS')
+from runtime_profiles import validate_command
+import headless_runtime
+validate_command(command, headless_runtime.doctor()['runtime_profile'])
+entrypoint = 'jy14_headless.py'
+if command in {'edit', 'ui-export'}:
+    allowed = {'inspect', 'build', 'verify-build', 'publish', 'verify'} if command == 'edit' else {'plan', 'verify'}
+    nested = sys.argv[2] if len(sys.argv) > 2 else None
+    if nested in {None, '--help', '-h'}:
+        print(command + ': ' + ', '.join(sorted(allowed)) + '; use SUBCOMMAND --help for options')
+        raise SystemExit(0)
+    if nested not in allowed:
+        raise SystemExit('Unsupported ' + command + ' command; allowed: ' + ', '.join(sorted(allowed)))
+    entrypoint = 'native_edit.py' if command == 'edit' else 'ui_export.py'
+    del sys.argv[1]
 runpy.run_path(str(BACKEND / entrypoint), run_name='__main__')
