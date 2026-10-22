@@ -79,6 +79,16 @@ class PackagingTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('M5 supports', result.stderr)
 
+    def test_nested_unknown_commands_fail_before_runtime_discovery(self):
+        import headless_runtime
+        for route in ('edit', 'ui-export'):
+            with self.subTest(route=route), patch.object(sys, 'argv', [str(ENTRY), route, 'unsupported']), \
+                    patch.dict(os.environ, {'JIANYING_HEADLESS_ROOT': str(ROOT)}), \
+                    patch.object(headless_runtime, 'doctor') as doctor:
+                with self.assertRaisesRegex(SystemExit, 'Unsupported ' + route):
+                    exec(compile(ENTRY.read_text(), str(ENTRY), 'exec'), {'__file__': str(ENTRY), '__name__': '__main__'})
+                doctor.assert_not_called()
+
     def test_missing_configured_checkout_fails_before_output(self):
         result = self.cli(JIANYING_HEADLESS_ROOT=str(self.folder / 'missing'))
         self.assertNotEqual(result.returncode, 0)

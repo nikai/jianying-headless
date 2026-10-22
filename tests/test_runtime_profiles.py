@@ -354,6 +354,25 @@ class M5CreationBoundary(unittest.TestCase):
             bad = deepcopy(timeline); bad['new_version'] = '187.0.0'
             with self.assertRaises(ValueError): edit.validate_m5_source(bad, target, self.profile)
 
+    def test_m5_rejects_parsed_otf_even_when_named_ttf(self):
+        from copy import deepcopy
+        from unittest.mock import patch
+        plan = deepcopy(self.plan)
+        path = '/unused/renamed.ttf'
+        plan['tracks'][1]['segments'][0]['font_path'] = path
+        asset = {'source': path, 'format': 'otf'}
+        with patch.object(self.j, 'regular_file', return_value=Path('/unused/source.mp4')), \
+                patch.object(self.j, 'probe', return_value=self.asset), \
+                patch.object(self.j.fonts, 'asset_for', return_value=asset), \
+                patch.object(self.j.fonts, 'verify_glyphs') as glyphs:
+            with self.assertRaisesRegex(ValueError, 'parsed static TTF'):
+                self.j.validate_plan(plan, self.profile)
+            glyphs.assert_not_called()
+        timeline, metadata, assets, target = self.plain_timeline()
+        with self.assertRaisesRegex(ValueError, 'parsed static TTF'):
+            self.j.verify_structure(timeline, metadata, self.plan, assets, target,
+                                    runtime_profile=self.profile, font_assets=[asset])
+
     def test_explicit_static_font_requires_glyph_coverage(self):
         import importlib.util
         import native_fonts

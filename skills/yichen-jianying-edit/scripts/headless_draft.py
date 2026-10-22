@@ -35,7 +35,7 @@ BACKEND = PROJECT_ROOT / 'engine'
 PINS = {
     'native_fonts.py': 'ed23b1db6b5cfd225a14100e04d5a62a947f02882dc3b4f31eb62fed43996995',
     'runtime_profiles.py': 'ac82a006b55de6d98fd3d62a16432e8135a4c5672cddc27b3ce895c0dce4dcd4',
-    'jy14_headless.py': '3f71e18821875de9a74cc97426dfa874e709d878c9dd9a296fb9fba9d469c32c',
+    'jy14_headless.py': '122ec4a8cd31c961448465451ea911daed87769fcfe639604c57a7d2a2c7b0be',
     'native_motion.py': '5d743caaa38c921779166e5663d36f72a0c3fdb130a690ac3942a7adcf62d6c2',
     'native_effects.py': 'c46b2fc9221dd613f220564b752e532f8f3753dd5595aaffc24f41d5236e4e97',
     'native_resources.py': '9bddfbb1cd688cebd69ac49f9bbf63c242522d9666a2ef7b412fe097113f68f2',
@@ -78,9 +78,10 @@ Native ExportService, compounds and Windows are unavailable through this entry."
 if os.name == 'nt':
     raise SystemExit('M5 local entry requires Apple Silicon macOS')
 from runtime_profiles import M5_PROFILE, validate_command
-validate_command(command, M5_PROFILE)
-import headless_runtime
-validate_command(command, headless_runtime.doctor()['runtime_profile'])
+try:
+    validate_command(command, M5_PROFILE)
+except ValueError as exc:
+    raise SystemExit(str(exc)) from None
 entrypoint = 'jy14_headless.py'
 if command in {'edit', 'ui-export'}:
     allowed = {'inspect', 'build', 'verify-build', 'publish', 'verify'} if command == 'edit' else {'plan', 'verify'}
@@ -92,4 +93,9 @@ if command in {'edit', 'ui-export'}:
         raise SystemExit('Unsupported ' + command + ' command; allowed: ' + ', '.join(sorted(allowed)))
     entrypoint = 'native_edit.py' if command == 'edit' else 'ui_export.py'
     del sys.argv[1]
+import headless_runtime
+try:
+    validate_command(command, headless_runtime.doctor()['runtime_profile'])
+except ValueError as exc:
+    raise SystemExit(str(exc)) from None
 runpy.run_path(str(BACKEND / entrypoint), run_name='__main__')

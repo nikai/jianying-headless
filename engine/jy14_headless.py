@@ -245,6 +245,8 @@ def validate_plan(plan, runtime_profile=None):
     validate_creation_plan(plan, runtime_profile, assets.values())
     font_assets = fonts.collect_plan(plan)
     if runtime_profile == M5_PROFILE:
+        require(all(a.get('format') == 'ttf' for a in font_assets.values()),
+                'M5 local fonts require parsed static TTF format')
         for track in plan['tracks']:
             for spec in track['segments']:
                 if 'font_path' in spec:
@@ -563,6 +565,8 @@ def verify_structure(timeline, metadata, plan, assets, target, allow_native_reso
     validate_timeline_schema(timeline, runtime_profile)
     validate_creation_plan(plan, runtime_profile, assets)
     if runtime_profile == M5_PROFILE:
+        require(all(a.get('format') == 'ttf' for a in font_assets),
+                'M5 local fonts require parsed static TTF format')
         validate_m5_materials(timeline, plan, target)
     require(all(timeline['canvas_config'][k] == plan['canvas'][k] for k in ('width', 'height')), 'Canvas changed')
     require(timeline.get('fps', 30) == plan['canvas']['fps'], 'Timeline frame rate changed')

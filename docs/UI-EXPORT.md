@@ -64,12 +64,12 @@ its source through the dialog.
 
 ## Operating the dialog
 
-Observed on 11.6.0 (build 13281) on 2026-10-20. No login and no membership are
+Observed on the exact M5 11.6.0 package on 2026-10-22. No login and no membership are
 required; the only membership item, 一键超清, stays off.
 
 | Field | Setting |
 | --- | --- |
-| 格式 | **MP4** — the dialog defaults to MOV |
+| 格式 | **MOV** — retain the accepted dialog default |
 | 分辨率 | 原始 (exports at the draft canvas) |
 | 帧率 | the draft's own frame rate |
 | 导出至 | the job directory from `plan` |

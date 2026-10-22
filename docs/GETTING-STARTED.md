@@ -62,8 +62,8 @@ python3 skills/yichen-jianying-edit/scripts/headless_draft.py verify-build --bui
 ```
 
 输出目录须不存在。成功返回已验证结构，尚未登记首页；原素材不变。
-普通裁切保持 1×，只接受一条视频轨和普通文字轨；不要添加 `speed`、`volume`、
-`keyframes`、`font_path`、`mask`、`transition_out`、`text_effect` 等字段。
+本节基础示例使用一条视频轨和普通文字轨，裁切保持 1×。已验的音量、关键帧、静态 TTF、
+蒙版和叠化等高级字段见 skill 的 `references/plan-format.md`；变速和 `text_effect` 仍未开放。
 
 ## 登记和只读回读
 

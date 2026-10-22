@@ -9,7 +9,7 @@ New `jy14-headless-plan/v1` text segments accept an optional `font_path`:
 
 ```json
 {"text":"Editable text","start_us":0,"duration_us":2000000,
- "font_path":"/absolute/path/font.otf"}
+ "font_path":"/absolute/path/font.ttf"}
 ```
 
 The builder sets both the material's `font_path` and its serialized
