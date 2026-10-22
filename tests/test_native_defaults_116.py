@@ -6,7 +6,7 @@ companions including one the 185 source never had, and the custom-curve average
 recalculated against the frame-floored target duration. The fixtures themselves
 are synthetic and need no app, codec, account, media, user draft or network.
 These historical algorithms are isolated from capability checks in the fixtures.
-The new M5 library is excluded from EDIT_PROFILES; passing here grants no edit access.
+Passing these historical comparison fixtures grants no current M5 capability access.
 """
 from copy import deepcopy
 from pathlib import Path

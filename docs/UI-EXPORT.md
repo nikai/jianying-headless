@@ -1,7 +1,7 @@
 # UI export acceptance
 
-Jianying 11.6.0 has no reviewed headless export ABI, so `export` refuses before
-it reads a build. This path exists so a finished file can still be delivered on
+Jianying 11.6.0 has no reviewed headless export ABI; the formal wrapper refuses
+`export`, and the existing native helper also rejects this library identity. This path exists so a finished file can still be delivered on
 that runtime: the **editor's own export dialog** renders, and `ui-export`
 checks the result. It renders nothing itself.
 
@@ -13,7 +13,6 @@ that path — `EXPORT_PROFILES` and its container brands are untouched.
 
 ```bash
 python3 SKILL/scripts/headless_draft.py ui-export plan --build ABSOLUTE_BUILD --out ABSOLUTE_WORK/NEW_JOB
-# ... export the registered draft from the editor, following the printed settings ...
 python3 SKILL/scripts/headless_draft.py ui-export verify --job ABSOLUTE_WORK/NEW_JOB
 ```
 
@@ -34,7 +33,7 @@ one.
   the build (four mirrors, media bytes, home registration, untouched source).
 - Canvas, frame rate, duration and audio expectation still match the plan, and
   the editor runtime (version and library hash) has not changed.
-- Container is one of the reviewed MP4 brands, one H.264 video stream, at most
+- Container uses one of the reviewed ISO-BMFF/QuickTime brands, one H.264 video stream, at most
   one AAC audio stream, and the audio stream is present when the draft has audio.
 - **Exact frame count.** This reuses the headless exporter's own policy, so a
   missing tail frame is refused as a partial deliverable, not tolerated as
@@ -47,8 +46,8 @@ viewing the output.
 
 ## Two things this path does that the headless one does not
 
-**The container is QuickTime-branded.** The dialog's MP4 preset writes
-`major_brand: qt  `. `ui_export.CONTAINER_BRANDS` accepts it alongside
+**The accepted M5 preset is MOV.** Actual M5 MOV output carries
+`major_brand: qt  `; no M5 MP4-direct-output claim is made. `ui_export.CONTAINER_BRANDS` accepts it alongside
 `isom`/`mp41`/`mp42`; the headless exporter's brand set is unchanged and still
 refuses `qt  `.
 
@@ -65,12 +64,12 @@ its source through the dialog.
 
 ## Operating the dialog
 
-Observed on 11.6.0 (build 13281) on 2026-10-20. No login and no membership are
+Observed on the exact M5 11.6.0 package on 2026-10-22. No login and no membership are
 required; the only membership item, 一键超清, stays off.
 
 | Field | Setting |
 | --- | --- |
-| 格式 | **MP4** — the dialog defaults to MOV |
+| 格式 | **MOV** — retain the accepted dialog default |
 | 分辨率 | 原始 (exports at the draft canvas) |
 | 帧率 | the draft's own frame rate |
 | 导出至 | the job directory from `plan` |
@@ -98,3 +97,12 @@ codec/missing-audio strictness, probe immutability, the registered runtime set
 being 11.6.0 only and disjoint from `EXPORT_PROFILES`, and the draft-change
 report. Offline passes establish nothing about a real export; the acceptance is
 in [VERIFICATION.md](VERIFICATION.md).
+
+
+The plan defaults to `.mov` and requests MOV. Keep sharing and cloud backup off.
+For an MP4 deliverable, the verified MOV may be remuxed with FFmpeg `-c copy`:
+renderer remains Jianying's export dialog, container_writer becomes FFmpeg stream copy.
+This is neither external composition nor proof of native ExportService support.
+See the [export instructions](../skills/yichen-jianying-edit/references/export-macos.md)
+for commands. The M5 host verified eight synthetic exports and two lossless remuxes;
+M1 has no Jianying runtime acceptance, only source/skill deployment.

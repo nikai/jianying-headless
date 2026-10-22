@@ -244,6 +244,13 @@ def validate_plan(plan, runtime_profile=None):
         require(duration == main_end, 'Overlay, audio and text must fit within the main video duration')
     validate_creation_plan(plan, runtime_profile, assets.values())
     font_assets = fonts.collect_plan(plan)
+    if runtime_profile == M5_PROFILE:
+        require(all(a.get('format') == 'ttf' for a in font_assets.values()),
+                'M5 local fonts require parsed static TTF format')
+        for track in plan['tracks']:
+            for spec in track['segments']:
+                if 'font_path' in spec:
+                    fonts.verify_glyphs(spec['font_path'], spec['text'])
     effects.transition_audit(plan, assets)
     return assets, duration, font_assets
 
@@ -487,32 +494,80 @@ def native_media_path(value, target):
     return path.resolve()
 
 
+def validate_m5_materials(timeline, plan, target):
+    """Reject unplanned native features before the per-segment binding checks."""
+    materials = timeline.get('materials', {})
+    companions = {'canvases', 'beats', 'loudnesses', 'placeholder_infos', 'speeds',
+                  'sound_channel_mappings', 'material_colors', 'vocal_separations', 'material_animations'}
+    counts = dict.fromkeys(('videos', 'audios', 'texts', 'common_mask', 'transitions', 'video_effects'), 0)
+    for track in plan['tracks']:
+        for spec in track['segments']:
+            counts[{'video': 'videos', 'audio': 'audios', 'text': 'texts', 'effect': 'video_effects'}[track['type']]] += 1
+            counts['common_mask'] += 'mask' in spec
+            counts['transitions'] += 'transition_out' in spec
+    require(not any(nodes for bucket, nodes in materials.items() if bucket not in companions | counts.keys()),
+            'M5 unreviewed native materials')
+    for bucket, count in counts.items():
+        require(len(materials.get(bucket, [])) == count, 'M5 unplanned native materials: ' + bucket)
+    for node in materials.get('material_animations', []):
+        require(set(node) <= {'id', 'type'} and node.get('type') == 'sticker_animation',
+                'M5 text animation is unreviewed')
+    for node in materials.get('speeds', []):
+        speed = node.get('speed', 1)
+        require(set(node) <= {'id', 'type', 'speed'} and type(speed) in (int, float) and speed == 1,
+                'M5 speed changes are unreviewed')
+    templates = blueprint()
+    for bucket in companions - {'speeds', 'material_animations'}:
+        defaults = [{k: v for k, v in node.items() if k != 'id'}
+                    for kind in ('video', 'audio', 'text') for name, node in templates[kind]['materials']
+                    if name == bucket]
+        require(all({k: v for k, v in node.items() if k != 'id'} in defaults
+                    for node in materials.get(bucket, [])), 'M5 unplanned companion settings: ' + bucket)
+    require(len(timeline.get('tracks', [])) == len(plan['tracks']), 'M5 track count changed')
+    text_index = {node['id']: node for node in materials.get('texts', [])}
+    for track, wanted in zip(timeline['tracks'], plan['tracks']):
+        require(track['type'] == wanted['type'] and len(track['segments']) == len(wanted['segments']),
+                'M5 track kind/length changed')
+        for segment, spec in zip(track['segments'], wanted['segments']):
+            require(not segment.get('keyframe_refs'), 'M5 external keyframes are unreviewed')
+            if 'keyframes' not in spec:
+                require(not segment.get('common_keyframes'), 'M5 unplanned keyframes')
+            require(segment.get('visible', True) is True, 'M5 segment must remain visible')
+            flip = segment.get('clip', {}).get('flip', {})
+            require(isinstance(flip, dict) and not set(flip) - {'horizontal', 'vertical'} and not any(flip.values()),
+                    'M5 unplanned clip flip')
+            if track['type'] in {'video', 'audio'}:
+                speed = segment.get('speed', 1)
+                volume = segment.get('volume', 1)
+                require(type(speed) in (int, float) and speed == 1, 'M5 segment speed must remain 1')
+                require(type(volume) in (int, float) and math.isfinite(volume) and 0 <= volume <= 4,
+                        'M5 invalid segment volume')
+            if track['type'] in {'video', 'text'} and 'opacity' not in spec.get('keyframes', {}):
+                alpha = segment.get('clip', {}).get('alpha', 1)
+                require(type(alpha) in (int, float) and math.isfinite(alpha)
+                        and abs(alpha - spec.get('opacity', 1)) < 1e-5, 'M5 clip alpha differs from plan')
+            if track['type'] == 'text':
+                material = text_index[segment['material_id']]
+                content = json.loads(material['content'])
+                fonts.ordinary_font(material, content, target)
+                if 'font_path' not in spec:
+                    require(material['font_path'] == str(nd.APP / 'Contents/Resources/Font/SystemFont/zh-hans.ttf'),
+                            'M5 unplanned custom font')
+    # Companions can be added by native save, but arbitrary orphan nodes cannot.
+    refs = {ref for track in timeline['tracks'] for segment in track['segments']
+            for ref in [segment['material_id']] + segment.get('extra_material_refs', [])}
+    require(all(node.get('id') in refs for nodes in materials.values() for node in nodes),
+            'M5 unreferenced native material')
+
+
 def verify_structure(timeline, metadata, plan, assets, target, allow_native_resource_cache=False,
                      runtime_profile=None, font_assets=()):
     validate_timeline_schema(timeline, runtime_profile)
     validate_creation_plan(plan, runtime_profile, assets)
     if runtime_profile == M5_PROFILE:
-        allowed = {'videos', 'texts', 'speeds', 'placeholder_infos', 'canvases',
-                   'sound_channel_mappings', 'material_colors', 'vocal_separations', 'material_animations'}
-        require(not any(nodes for bucket, nodes in timeline['materials'].items() if bucket not in allowed),
-                'M5 unreviewed native materials')
-        for node in timeline['materials'].get('material_animations', []):
-            require(set(node) <= {'id', 'type'}, 'M5 text animation is unreviewed')
-        for node in timeline['materials'].get('speeds', []):
-            require(set(node) <= {'id', 'type', 'speed'} and node.get('speed', 1) == 1,
-                    'M5 speed changes are unreviewed')
-        font = '/Applications/VideoFusion-macOS.app/Contents/Resources/Font/SystemFont/zh-hans.ttf'
-        for node in timeline['materials'].get('texts', []):
-            require(node.get('font_path') == font, 'M5 custom fonts are unreviewed')
-            for style in json.loads(node['content'])['styles']:
-                require(style.get('font') == {'id': '', 'path': font}, 'M5 custom fonts are unreviewed')
-        for track in timeline['tracks']:
-            for segment in track['segments']:
-                require(not segment.get('common_keyframes') and not segment.get('keyframe_refs'),
-                        'M5 keyframes are unreviewed')
-                alpha = segment.get('clip', {}).get('alpha', 1)
-                require(type(alpha) in (int, float) and alpha == 1, 'M5 clip alpha must remain 1')
-                require(segment.get('visible', True) is True, 'M5 segment must remain visible')
+        require(all(a.get('format') == 'ttf' for a in font_assets),
+                'M5 local fonts require parsed static TTF format')
+        validate_m5_materials(timeline, plan, target)
     require(all(timeline['canvas_config'][k] == plan['canvas'][k] for k in ('width', 'height')), 'Canvas changed')
     require(timeline.get('fps', 30) == plan['canvas']['fps'], 'Timeline frame rate changed')
     require(metadata['draft_fold_path'] == str(target) and metadata['draft_name'] == target.name, 'Draft identity mismatch')
@@ -595,6 +650,9 @@ def verify_structure(timeline, metadata, plan, assets, target, allow_native_reso
                 asset = next(a for a in assets if a['source'] == str(Path(spec['source']).resolve()))
                 if wanted['type'] == 'video':
                     require(material['type'] == asset.get('media_type', 'video'), 'Visual media type changed')
+                    if runtime_profile == M5_PROFILE:
+                        require((material.get('width'), material.get('height')) == (asset['width'], asset['height'])
+                                and material.get('has_audio', True) is True, 'M5 native media dimensions/audio changed')
                 require(native_media_path(material['path'], target) ==
                         (target / asset['relative']).resolve(), 'Media binding changed')
                 require(abs(actual.get('speed', 1) - spec.get('speed', 1)) < 1e-6, 'Speed changed')

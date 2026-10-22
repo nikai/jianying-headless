@@ -2,7 +2,7 @@
 PRIMARY_VERSION = '11.5.0'
 PROFILE_PREFIX = 'jy14-headless-macos-'
 PROFILES = {
-    # M5 local identity: only plain H.264 creation/readback is accepted.
+    # Exact M5 identity; capabilities below are scoped to the 2026-10-22 UI trials.
     '11.6.0': '1748fa32a09a967b46515a3acb04863a917b445682d06a64c0e9f0a739db01f1',
     '11.5.0': '2041482a1aaeffa4d8bd69b836f8cf38807aaad8021bca410d567c59af3bccfa',
     '11.4.2': '632c8ddd09ff4a54f876cd8142eb505055ee26d944199506b230949b7e106bd1',
@@ -12,10 +12,10 @@ EXPORT_PROFILES = frozenset(PROFILE_PREFIX + v for v in ('11.5.0', '11.4.2'))
 # Deliverables rendered by the editor's own export dialog. This is a separate
 # evidence tier from EXPORT_PROFILES above: it needs no export ABI, proves
 # nothing about one, and its acceptance never carries over to that path.
-UI_EXPORT_PROFILES = frozenset()
+UI_EXPORT_PROFILES = frozenset((PROFILE_PREFIX + '11.6.0',))
 # Captured draft resources are reviewed per runtime in the UI, independently of export ABIs.
-RESOURCE_PROFILES = frozenset(PROFILE_PREFIX + v for v in ('11.5.0', '11.4.2'))
-EDIT_PROFILES = frozenset(PROFILE_PREFIX + v for v in ('11.5.0', '11.4.2', '11.4.0'))
+RESOURCE_PROFILES = frozenset(PROFILE_PREFIX + v for v in ('11.6.0', '11.5.0', '11.4.2'))
+EDIT_PROFILES = frozenset(PROFILE_PREFIX + v for v in ('11.6.0', '11.5.0', '11.4.2', '11.4.0'))
 RESOURCE_CAPTURE_PROFILE = PROFILE_PREFIX + '11.4.2'
 TIMELINE_SCHEMAS = frozenset((('185.0.0', 360000), ('187.0.0', 360000), ('189.0.0', 360000)))
 # Saved formats newer than the builder's 185 are accepted only on runtimes observed reading them:
@@ -78,43 +78,66 @@ def validate_resource_profile(runtime_profile, capture_profile):
 
 
 M5_PROFILE = PROFILE_PREFIX + '11.6.0'
-M5_COMMANDS = frozenset(('doctor', 'build', 'verify-build', 'publish', 'verify'))
+M5_COMMANDS = frozenset(('doctor', 'build', 'verify-build', 'publish', 'verify', 'edit', 'ui-export'))
 
 
 def validate_command(command, runtime_profile):
     if runtime_profile != M5_PROFILE or command not in M5_COMMANDS:
-        raise ValueError('M5 local profile supports only doctor/build/verify-build/publish/verify')
+        raise ValueError('M5 supports doctor/build/verify-build/publish/verify, edit and ui-export only')
 
 
 def validate_creation_plan(plan, runtime_profile, assets=None):
-    """Restrict the new M5 library without inheriting the old library's evidence."""
+    """Only the creation matrix exercised on the exact M5 library."""
     if runtime_profile != M5_PROFILE:
         return
-    if plan.get('canvas') != {'width': 1280, 'height': 720, 'fps': 30}:
-        raise ValueError('M5 reviewed canvas is 1280x720 at 30 fps only')
+    if plan.get('canvas') not in ({'width': w, 'height': h, 'fps': 30}
+                                  for w, h in ((1280, 720), (1920, 1080), (3840, 2160))):
+        raise ValueError('M5 canvas requires 720p, 1080p or UHD4K at 30 fps')
     tracks = plan.get('tracks', [])
     if not tracks or tracks[0].get('type') != 'video':
-        raise ValueError('M5 creation requires H.264 video and optional plain subtitles')
+        raise ValueError('M5 requires a main H.264 video track')
     for track in tracks:
         kind = track.get('type')
-        if kind not in {'video', 'text'} or (kind == 'video' and track is not tracks[0]):
-            raise ValueError('M5 supports one video track and plain subtitle tracks only')
-        allowed = {'source', 'source_start_us', 'source_duration_us', 'start_us', 'duration_us'}
+        if kind not in {'video', 'audio', 'text', 'effect'} or (kind == 'video' and track is not tracks[0]):
+            raise ValueError('M5 supports one main video track, text, AAC audio and light-shake tracks')
+        allowed = {'source', 'source_start_us', 'source_duration_us', 'start_us', 'duration_us',
+                   'volume', 'scale', 'x', 'y', 'rotation', 'opacity', 'keyframes', 'mask', 'transition_out'}
         if kind == 'text':
             allowed = {'text', 'start_us', 'duration_us', 'size', 'x', 'y',
-                       'color', 'border_color', 'border_width'}
+                       'color', 'border_color', 'border_width', 'opacity', 'font_path'}
+        elif kind == 'audio':
+            allowed = {'source', 'source_start_us', 'source_duration_us', 'start_us', 'duration_us', 'volume'}
+        elif kind == 'effect':
+            allowed = {'start_us', 'duration_us', 'name', 'params'}
         for segment in track.get('segments', []):
             if set(segment) - allowed:
-                raise ValueError('M5 supports plain video/subtitles only; unsupported segment fields: '
+                raise ValueError('M5 unreviewed segment fields: '
                                  + ', '.join(sorted(set(segment) - allowed)))
-            if kind == 'video' and segment.get('source_duration_us', segment.get('duration_us')) != segment.get('duration_us'):
-                raise ValueError('M5 supports unit-speed video only')
+            if kind in {'video', 'audio'} and segment.get('source_duration_us', segment.get('duration_us')) != segment.get('duration_us'):
+                raise ValueError('M5 supports unit-speed media only')
+            if 'font_path' in segment and not str(segment['font_path']).lower().endswith('.ttf'):
+                raise ValueError('M5 local fonts require static TTF files')
+            if kind == 'effect':
+                params = segment.get('params', {})
+                if (segment.get('name') != 'light-shake' or not isinstance(params, dict)
+                        or any(k not in {'range', 'speed'} or v != {'range': .15, 'speed': .33}[k]
+                               for k, v in params.items())):
+                    raise ValueError('M5 light-shake supports the captured default parameters only')
+            if 'transition_out' in segment:
+                transition = segment['transition_out']
+                if (not isinstance(transition, dict) or transition.get('name') != 'dissolve'
+                        or transition.get('edge_policy', 'require-handles') != 'require-handles'):
+                    raise ValueError('M5 transitions require captured dissolve with real source handles')
     if assets is not None:
         for asset in assets:
+            if (asset.get('kind') == 'audio' and asset.get('media_type') == 'music'
+                    and asset.get('codec') == 'aac' and asset.get('audio_codec') == 'aac'
+                    and asset.get('has_audio') is True):
+                continue
             if (asset.get('kind') != 'video' or asset.get('media_type') != 'video'
                     or asset.get('codec') != 'h264'):
-                raise ValueError('M5 supports H.264 video only; audio files, photos and GIF are unreviewed')
+                raise ValueError('M5 supports H.264 video and independent AAC audio only')
             if (asset.get('pix_fmt') != 'yuv420p' or asset.get('audio_codec') != 'aac'
                     or asset.get('has_audio') is not True or asset.get('r_frame_rate') != '30/1'
-                    or (asset.get('width'), asset.get('height')) != (1280, 720)):
-                raise ValueError('M5 reviewed media is 1280x720 H.264/yuv420p at 30 fps with AAC audio only')
+                    or (asset.get('width'), asset.get('height')) != (plan['canvas']['width'], plan['canvas']['height'])):
+                raise ValueError('M5 reviewed media must match its canvas: H.264/yuv420p at 30 fps with AAC audio')

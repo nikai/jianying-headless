@@ -1,8 +1,8 @@
 # M5：生成 H.264 视频与普通字幕草稿
 
 本教程适用于 [README 的精确 M5 环境](../README.md#精确环境)，不是通用安装兼容承诺。
-当前仅开放 `doctor/build/verify-build/publish/verify`。编辑、资源特效、字体、动画、
-复合片段、音效轨及所有导出均关闭；历史参考文档中的高级命令不能用于此适配。
+本文先创建基础草稿；当前完整范围见 [README](../README.md)。编辑副本和 UI 导出
+分别使用正式入口的 `edit`、`ui-export`，后台原生导出仍关闭。
 
 ## 源码和工具
 
@@ -15,7 +15,9 @@ git clone https://github.com/nikai/jianying-headless.git ~/repos/third-party/jia
 cd ~/repos/third-party/jianying-headless
 ```
 
-需要 Python 3.9+ 和 FFmpeg / ffprobe；无需 pip 依赖、API Key、付费 ASR 或资源下载。
+需要 Python 3.9+ 和 FFmpeg / ffprobe；基础草稿无需 pip 依赖、API Key 或付费 ASR。
+显式本地 TTF 需在选定 Python 环境安装 `requirements-fonts.txt` 的钉版 fontTools；
+蒙版、叠化与 light-shake 仅使用已存在且逐文件匹配固定 catalog 的本机资源，缺失即拒绝。
 桥接已验组合为 Apple clang 21.0.0（clang-2100.3.34.2）/ SDK 27.0 / linker 27037.1，
 实测系统 macOS 27.0.1。版本相同但库不同仍会拒绝：当前库 SHA 为 `1748fa32…`，
 旧官方 13281 / `a490d9a0…` 不适用，也不继承它的 UI 导出、编辑或效果验收。
@@ -32,8 +34,8 @@ python3 skills/yichen-jianying-edit/scripts/headless_draft.py doctor
 
 ## 计划与隔离构建
 
-用有权使用的本地 H.264/yuv420p 视频编写 JSON：素材必须是 1280×720、30 fps，内嵌 AAC。
-画布也固定为 1280×720、30 fps；其他尺寸、像素格式、帧率、音频编码或无音轨都会拒绝。
+用有权使用的本地 H.264/yuv420p 视频编写 JSON：素材必须为 1280×720、1920×1080 或 3840×2160、30 fps，内嵌 AAC。
+画布与素材尺寸和帧率相同；其他尺寸、像素格式、帧率、音频编码或无音轨都会拒绝。
 下面是 4 秒视频和普通文字的示例，素材须至少 4 秒；替换素材绝对路径并选一个新草稿名。
 
 ```json
@@ -60,8 +62,8 @@ python3 skills/yichen-jianying-edit/scripts/headless_draft.py verify-build --bui
 ```
 
 输出目录须不存在。成功返回已验证结构，尚未登记首页；原素材不变。
-普通裁切保持 1×，只接受一条视频轨和普通文字轨；不要添加 `speed`、`volume`、
-`keyframes`、`font_path`、`mask`、`transition_out`、`text_effect` 等字段。
+本节基础示例使用一条视频轨和普通文字轨，裁切保持 1×。已验的音量、关键帧、静态 TTF、
+蒙版和叠化等高级字段见 skill 的 `references/plan-format.md`；变速和 `text_effect` 仍未开放。
 
 ## 登记和只读回读
 
@@ -76,14 +78,22 @@ python3 skills/yichen-jianying-edit/scripts/headless_draft.py verify --build "$P
 后续原生验收需单独打开、播放、保存、退出、冷重开再播放，完成后重新执行同一 `verify`。
 本适配保留 `185.0.0` → `189.0.0` 保存回读；不接受 `187.0.0` 来源。
 `status: verified` 表示结构与素材检查通过，不能代替画面、听感或冷重开证据。
-回读同时要求视频与字幕透明度为 1、可见性为 true，缺省时按这两个默认值检查。
-手动改过字幕、时间线、透明度或可见性后，回读会按原计划拒绝；保留修改，不绕过检查。
+上面的基础示例未指定透明度，回读按默认值1检查；高级样本按计划静态值或关键帧检查。
+可见性须保持 true。手动修改超出原计划时回读会拒绝；保留修改，不绕过检查。
 
 ## 故障与限制
 
 组件或工具链不匹配时停止，保留日志；草稿已存在时换新名称，不覆盖已有工程。
 `JIANYING_HEADLESS_ROOT` 可显式覆盖源码绝对路径；独立 Skill 默认查找上述标准目录，
 不依赖 GUI 继承 shell 环境。安装细节见 [Skill README](../skills/yichen-jianying-edit/README.md)。
-当前不提供 MP4 导出入口，也不通过 UI 自动化绕过能力门。
+UI 导出计划以 MOV 为准；MP4 可走已验证的无损转封装，不冒充剪映 MP4 直出。
 完整历史记录见 [验证状态](VERIFICATION.md)，旧库结论不迁移到当前 M5 库。
 许可见 [LICENSE](../LICENSE)。
+
+
+## 接着编辑或导出
+
+[计划格式](../skills/yichen-jianying-edit/references/plan-format.md) 给出高级字段；
+[编辑副本](../skills/yichen-jianying-edit/references/edit-existing-macos.md) 只修改新副本，
+[UI 导出](UI-EXPORT.md) 先冻结计划，再由宿主操作剪映，最后检查实际文件。
+每条路径都需保留精确库 SHA、签名、素材绑定和原来源校验；只有单测通过不代表新内容的 GUI 验收。

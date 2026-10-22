@@ -31,9 +31,8 @@ from runtime_profiles import UI_EXPORT_PROFILES
 
 SCHEMA = 'jy14-ui-export/v1'
 PLAN_SCHEMA = 'jy14-ui-export-plan/v1'
-# Jianying's MP4 preset writes a QuickTime-branded container; the 2026-10-20
-# 11.6.0 capture reported `qt  `. The headless exporter's own brand set stays
-# untouched, so widening this cannot loosen that path.
+# M5 11.6.0 UI trials produced MOV with the QuickTime brand.
+# Keep UI container acceptance separate from the headless exporter's brand set.
 CONTAINER_BRANDS = ('isom', 'mp41', 'mp42', 'qt  ')
 
 
@@ -44,6 +43,7 @@ def live_record(build):
     schema = record.get('schema')
     j.require(schema in ('jy14-headless-build/v1', edit.BUILD_SCHEMA),
               'UI export acceptance requires a verified headless/edit build')
+    (j.verify_build if schema == 'jy14-headless-build/v1' else edit.verify_build)(build)
     # verify_live compares the registered draft against the build, including the
     # four mirrors,媒体 bytes, home registration and the untouched source.
     report = j.verify_live(build) if schema == 'jy14-headless-build/v1' else edit.verify_live(build)
@@ -87,7 +87,7 @@ def plan(build, out):
         'draft': str(target), 'draft_name': target.name,
         'runtime': runtime, 'settings': settings,
         'duration_us': timeline['duration'], 'audio_expected': audio_expected,
-        'expected_output': str(job / (target.name + '.mp4')),
+        'expected_output': str(job / (target.name + '.mov')),
         'accepted_container_brands': list(CONTAINER_BRANDS),
         'live_draft_matches_build': True,
         'readback_before_export': report,
@@ -98,7 +98,7 @@ def plan(build, out):
         'draft_is_modified_by_exporting': True,
         'dialog_settings_required': {
             # The dialog lists whole frame rates without a decimal part.
-            '格式': 'MP4', '分辨率': '原始',
+            '格式': 'MOV', '分辨率': '原始',
             '帧率': str(int(settings['fps'])) if float(settings['fps']).is_integer() else str(settings['fps']),
             '导出至': str(job),
             '音频导出': '保持关闭（那是单独的音频文件，不是视频里的音轨）',
@@ -106,6 +106,7 @@ def plan(build, out):
         },
         'operator_notes': [
             'Export the registered draft from the editor; do not edit it first.',
+            'Keep sharing and cloud backup disabled; export only to the local job directory.',
             'The finished screen offers publishing to a third-party platform. Close it; never publish.',
         ],
     }
@@ -121,7 +122,7 @@ def probe(path):
 def validate_container(info, settings, duration_us, audio_expected):
     """Reuse the headless frame/codec checks, with this path's own brand set."""
     brand = info.get('format', {}).get('tags', {}).get('major_brand')
-    j.require(brand in CONTAINER_BRANDS, 'UI export container brand is not a reviewed MP4 brand: ' + str(brand))
+    j.require(brand in CONTAINER_BRANDS, 'UI export container brand is not reviewed: ' + str(brand))
     patched = json.loads(json.dumps(info))
     # validate_probe owns the exact frame-count and codec policy. Only the brand
     # differs for a UI export, and it was checked exactly above.
@@ -160,6 +161,8 @@ def verify(job, video=None, report=None):
     # The UI exports the live draft, not the frozen snapshot, so this has to hold
     # at export time too, not just when the job was planned.
     build, record, after = live_record(build)
+    j.require(document['draft'] == record['target'] and document['draft_name'] == Path(record['target']).name,
+              'UI export plan draft binding changed')
     timeline, runtime, settings, audio_expected = expectations(build, record)
     j.require(settings == document['settings'] and timeline['duration'] == document['duration_us']
               and audio_expected == document['audio_expected'],
@@ -182,7 +185,7 @@ def verify(job, video=None, report=None):
     decoded = subprocess.run(['ffmpeg', '-v', 'error', '-xerror', '-i', str(output), '-f', 'null', '-'],
                              capture_output=True, timeout=3600)
     j.write(attempt / 'decode.stderr.log', decoded.stderr)
-    j.require(decoded.returncode == 0, 'Exported MP4 did not fully decode')
+    j.require(decoded.returncode == 0, 'Exported video did not fully decode')
 
     evidence = {
         'schema': SCHEMA, 'status': 'encoded-and-decoded', 'ui_used': True,

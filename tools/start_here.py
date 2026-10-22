@@ -151,7 +151,7 @@ def build(raw):
     if raw is None:
         if not sys.stdin.isatty():
             raise ValueError('非交互运行需提供 --source 视频路径。')
-        raw = input('将一个至少 2 秒的 1280x720 / 30 fps H.264/yuv420p + AAC 视频拖到终端，然后按回车：\n')
+        raw = input('将一个至少 2 秒的 720p/1080p/UHD4K、30 fps H.264/yuv420p + AAC 视频拖到终端，然后按回车：\n')
     source = parse_source(raw)
     probe = run(['ffprobe', '-v', 'error', '-show_streams', '-show_format', '-of', 'json', str(source)])
     if probe.returncode:
