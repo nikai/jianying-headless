@@ -77,7 +77,8 @@ Native ExportService, compounds and Windows are unavailable through this entry."
     raise SystemExit(0)
 if os.name == 'nt':
     raise SystemExit('M5 local entry requires Apple Silicon macOS')
-from runtime_profiles import validate_command
+from runtime_profiles import M5_PROFILE, validate_command
+validate_command(command, M5_PROFILE)
 import headless_runtime
 validate_command(command, headless_runtime.doctor()['runtime_profile'])
 entrypoint = 'jy14_headless.py'
