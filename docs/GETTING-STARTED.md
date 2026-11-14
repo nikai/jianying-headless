@@ -20,7 +20,8 @@ cd ~/repos/third-party/jianying-headless
 蒙版、叠化与 light-shake 仅使用已存在且逐文件匹配固定 catalog 的本机资源，缺失即拒绝。
 桥接已验组合为 Apple clang 21.0.0（clang-2100.3.34.2）/ SDK 27.0 / linker 27037.1，
 实测系统 macOS 27.0.1。版本相同但库不同仍会拒绝：当前库 SHA 为 `1748fa32…`，
-旧官方 13281 / `a490d9a0…` 不适用，也不继承它的 UI 导出、编辑或效果验收。
+官方 13281 / `a490d9a0…` 另有精确 profile，仅恢复基础草稿和受限编辑，
+不开放下文高级项及 `ui-export`，也不继承 `1748fa32…` 的验收。参见 [验证状态](VERIFICATION.md)。
 
 ```bash
 python3 tools/build_native_codec.py --check-toolchain

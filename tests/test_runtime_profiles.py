@@ -17,7 +17,8 @@ class RuntimeProfiles(unittest.TestCase):
     def test_primary_and_legacy_identities(self):
         self.assertEqual(profiles.PRIMARY_VERSION, '11.5.0')
         for v,h in profiles.PROFILES.items():
-            self.assertEqual(profiles.validate_identity(self.info(v),h),v)
+            self.assertEqual(profiles.validate_identity(self.info(v.split('-', 1)[0]),h),v.split('-', 1)[0])
+            self.assertEqual(profiles.identity_profile(self.info(v.split('-', 1)[0]),h),profiles.PROFILE_PREFIX+v)
 
     def test_exact_1142_fingerprint_is_preserved(self):
         self.assertEqual(profiles.PROFILES['11.4.2'],
@@ -120,6 +121,155 @@ class RuntimeProfiles(unittest.TestCase):
         self.assertIn(runtime,profiles.EDIT_PROFILES)
         with self.assertRaises(ValueError):
             profiles.saved_schema_upgrade(dict(old,new_version="187.0.0"),saved,runtime)
+
+
+class Official13281Recovery(unittest.TestCase):
+    def setUp(self):
+        self.profile = profiles.OFFICIAL_13281_PROFILE
+        self.sha = profiles.PROFILES['11.6.0-13281']
+        self.plan = {'schema': 'jy14-headless-plan/v1', 'name': 'Joker-13281',
+                     'canvas': {'width': 1280, 'height': 720, 'fps': 30},
+                     'tracks': [{'type': 'video', 'segments': [
+                         {'source': '/unused/source.mp4', 'duration_us': 2000000}]},
+                         {'type': 'text', 'segments': [{'text': '字幕', 'duration_us': 2000000}]}]}
+        self.asset = {'kind': 'video', 'media_type': 'video', 'codec': 'h264',
+                      'pix_fmt': 'yuv420p', 'audio_codec': 'aac', 'has_audio': True,
+                      'r_frame_rate': '30/1', 'width': 1280, 'height': 720, 'duration_us': 2000000}
+
+    def test_exact_identity_is_distinct_without_changing_the_bundle_version(self):
+        info = RuntimeProfiles().info('11.6.0')
+        self.assertEqual(self.sha, 'a490d9a08b71a2d9af138d24528d3d40d65b37b06911627c53a2915c6cac0754')
+        self.assertEqual(profiles.validate_identity(info, self.sha), '11.6.0')
+        self.assertEqual(profiles.identity_profile(info, self.sha), self.profile)
+        self.assertEqual(profiles.identity_profile(info, profiles.PROFILES['11.6.0']), profiles.M5_PROFILE)
+        for bad in (RuntimeProfiles().info('11.6.1'), RuntimeProfiles().info('11.5.0'),
+                    dict(info, CFBundleVersion='13281'), dict(info, CFBundleIdentifier='com.other')):
+            with self.subTest(info=bad), self.assertRaises(ValueError):
+                profiles.identity_profile(bad, self.sha)
+        with self.assertRaises(ValueError):
+            profiles.identity_profile(info, 'a490d9a0' + '0' * 56)
+
+    def test_doctor_preserves_the_exact_profile_and_app_version(self):
+        from unittest.mock import patch
+        import headless_runtime as runtime
+        pins = dict(runtime.PINS, **{'SOURCE_MANIFEST.json': runtime.IO_MANIFEST_SHA,
+                                    'libvideoeditor.dylib': self.sha})
+        with patch.object(runtime, 'digest', side_effect=lambda path: pins[Path(path).name]), \
+                patch.object(Path, 'is_file', return_value=True), \
+                patch.object(Path, 'is_symlink', return_value=False), \
+                patch.object(Path, 'read_bytes', return_value=b'fixture'), \
+                patch.object(runtime.plistlib, 'loads', return_value=RuntimeProfiles().info('11.6.0')), \
+                patch.object(runtime.shutil, 'which', return_value='/unused/tool'):
+            result = runtime.doctor()
+        self.assertEqual(result['app_version'], '11.6.0')
+        self.assertEqual(result['app_build'], '11.6.0')
+        self.assertEqual(result['runtime_profile'], self.profile)
+        self.assertEqual(result['libvideoeditor_sha256'], self.sha)
+
+    def test_report_names_the_selected_hash_instead_of_the_other_116_library(self):
+        from unittest.mock import Mock, patch
+        import plistlib
+        sys.path.insert(0, str(ROOT / 'tools'))
+        import runtime_report
+        raw = plistlib.dumps(RuntimeProfiles().info('11.6.0'))
+        sha = Mock(); sha.hexdigest.return_value = self.sha
+        signature = Mock(returncode=0, stderr='TeamIdentifier=X2JNK7LY8J\n')
+        with patch.object(Path, 'read_bytes', return_value=raw), \
+                patch.object(Path, 'open') as stream, \
+                patch.object(runtime_report.hashlib, 'sha256', return_value=sha), \
+                patch.object(runtime_report.subprocess, 'run', return_value=signature):
+            stream.return_value.__enter__.return_value.read.return_value = b''
+            report = runtime_report.report(Path('/unused/app'))
+        self.assertEqual(report['status'], 'identity-verified')
+        self.assertEqual(report['runtime_profile'], self.profile)
+        self.assertEqual(report['expected_library_sha256'], self.sha)
+        self.assertFalse(report['codec_or_native_workflow_verified'])
+
+    def test_basic_structure_and_edit_source_are_checked_on_the_new_profile(self):
+        from copy import deepcopy
+        from unittest.mock import patch
+        import jy14_headless as j
+        import native_edit
+        source = self.plan['tracks'][0]['segments'][0]['source']
+        asset = dict(self.asset, source=source, sha256='a' * 64, size=10,
+                     local_id='media-local-id', relative='Resources/source.mp4')
+        target = Path('/unused/Joker-13281')
+        timeline, _ = j.timeline_for(self.plan, {source: asset}, target, 'sample', j.blueprint())
+        metadata = {'draft_fold_path': str(target), 'draft_name': target.name,
+                    'draft_materials': [{'type': 0, 'value': [j.library_record(asset, target, 0)]}]}
+        self.assertEqual(j.verify_structure(timeline, metadata, self.plan, [asset], target,
+                                            runtime_profile=self.profile), [])
+        with patch.object(j, 'probe', return_value=asset):
+            native_edit.validate_m5_source(timeline, target, self.profile)
+        bad = deepcopy(timeline); bad['materials']['video_effects'] = [{'id': 'unplanned'}]
+        with self.assertRaises(ValueError):
+            j.verify_structure(bad, metadata, self.plan, [asset], target, runtime_profile=self.profile)
+        with patch.object(j, 'probe', return_value=asset), self.assertRaises(ValueError):
+            native_edit.validate_m5_source(bad, target, self.profile)
+
+    def test_basic_commands_do_not_grant_resources_exports_or_compounds(self):
+        import native_compound
+        for command in ('doctor', 'build', 'verify-build', 'publish', 'verify', 'edit'):
+            profiles.validate_command(command, self.profile)
+        self.assertIn(self.profile, profiles.EDIT_PROFILES)
+        for capabilities in (profiles.RESOURCE_PROFILES, profiles.EXPORT_PROFILES,
+                             profiles.UI_EXPORT_PROFILES, native_compound.SUPPORTED_PROFILES):
+            self.assertNotIn(self.profile, capabilities)
+        for command in ('export', 'ui-export', 'from-compiled', 'create'):
+            with self.subTest(command=command), self.assertRaises(ValueError):
+                profiles.validate_command(command, self.profile)
+        with self.assertRaises(ValueError):
+            profiles.validate_resource_profile(self.profile, profiles.RESOURCE_CAPTURE_PROFILE)
+        with self.assertRaises(ValueError):
+            profiles.validate_export_profiles(self.profile, self.profile)
+
+    def test_basic_creation_and_saved_schema_keep_the_restricted_boundary(self):
+        from copy import deepcopy
+        profiles.validate_creation_plan(self.plan, self.profile, [self.asset])
+        before = {'id': 'sample', 'new_version': '185.0.0', 'version': 360000}
+        after = dict(before, new_version='189.0.0', last_modified_platform={'app_version': '11.6.0'})
+        self.assertEqual(profiles.saved_schema_upgrade(before, after, self.profile),
+                         {'timeline_id': 'sample', 'before': '185.0.0', 'after': '189.0.0'})
+        with self.assertRaises(ValueError):
+            profiles.validate_timeline_schema(dict(before, new_version='187.0.0'), self.profile)
+        for field, value in (('keyframes', {}), ('mask', {}), ('transition_out', {}), ('font_path', '/unused/font.ttf')):
+            bad = deepcopy(self.plan); bad['tracks'][0]['segments'][0][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                profiles.validate_creation_plan(bad, self.profile)
+        for kind in ('audio', 'effect', 'compound'):
+            bad = deepcopy(self.plan); bad['tracks'][1]['type'] = kind
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                profiles.validate_creation_plan(bad, self.profile)
+        for asset in (dict(self.asset, has_audio=False), dict(self.asset, codec='hevc'),
+                      dict(self.asset, r_frame_rate='60/1'), dict(self.asset, width=1920)):
+            with self.subTest(asset=asset), self.assertRaises(ValueError):
+                profiles.validate_creation_plan(self.plan, self.profile, [asset])
+
+    def test_edit_and_comparison_use_basic_13281_evidence(self):
+        import native_edit
+        native_edit.validate_m5_operations([{'op': 'replace_text'}], self.profile)
+        for operation in ({'op': 'create_compound'}, {'op': 'set_segment', 'set': {'speed': 2}}):
+            with self.assertRaises(ValueError):
+                native_edit.validate_m5_operations([operation], self.profile)
+        expected = {'id': 'sample', 'duration': 0, 'tracks': [], 'materials': {},
+                    'new_version': '189.0.0', 'version': 360000, 'fps': 30,
+                    'last_modified_platform': {'app_version': '11.6.0', 'hard_disk_id': 'old'}}
+        actual = dict(expected, last_modified_platform={'app_version': '11.6.0', 'hard_disk_id': 'new'})
+        self.assertEqual(native_edit.normalize_saved_provenance(expected, actual, self.profile), ['hard_disk_id'])
+        self.assertEqual(actual, expected)
+        actual = dict(expected); del actual['fps']
+        native_edit.compare_saved_timeline(expected, actual, self.profile)
+        with self.assertRaises(ValueError):
+            native_edit.compare_saved_timeline(expected, dict(actual, fps=60), self.profile)
+
+    def test_cross_library_builds_remain_rejected_in_both_directions(self):
+        import jy14_headless as j
+        old = {'runtime_profile': profiles.M5_PROFILE, 'libvideoeditor_sha256': profiles.PROFILES['11.6.0']}
+        new = {'runtime_profile': self.profile, 'libvideoeditor_sha256': self.sha}
+        for recorded, current in ((old, new), (new, old)):
+            with self.assertRaises(ValueError):
+                j.validate_build_runtime({'runtime_profile': recorded['runtime_profile'], 'runtime': recorded}, current)
+        j.validate_build_runtime({'runtime_profile': self.profile, 'runtime': new}, new)
 
 
 class M5CreationBoundary(unittest.TestCase):

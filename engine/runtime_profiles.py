@@ -1,13 +1,16 @@
 """Reviewed application identities; never infer compatibility from a version prefix."""
 PRIMARY_VERSION = '11.5.0'
 PROFILE_PREFIX = 'jy14-headless-macos-'
+# Keys are capability-profile suffixes; the part before '-' is the bundle version.
 PROFILES = {
     # Exact M5 identity; capabilities below are scoped to the 2026-10-22 UI trials.
     '11.6.0': '1748fa32a09a967b46515a3acb04863a917b445682d06a64c0e9f0a739db01f1',
+    '11.6.0-13281': 'a490d9a08b71a2d9af138d24528d3d40d65b37b06911627c53a2915c6cac0754',
     '11.5.0': '2041482a1aaeffa4d8bd69b836f8cf38807aaad8021bca410d567c59af3bccfa',
     '11.4.2': '632c8ddd09ff4a54f876cd8142eb505055ee26d944199506b230949b7e106bd1',
     '11.4.0': 'a1693070036a6678bb5db35f71d2105812ad24a2370e7e91c78712cc0d6455f3',
 }
+OFFICIAL_13281_PROFILE = PROFILE_PREFIX + '11.6.0-13281'
 EXPORT_PROFILES = frozenset(PROFILE_PREFIX + v for v in ('11.5.0', '11.4.2'))
 # Deliverables rendered by the editor's own export dialog. This is a separate
 # evidence tier from EXPORT_PROFILES above: it needs no export ABI, proves
@@ -15,16 +18,17 @@ EXPORT_PROFILES = frozenset(PROFILE_PREFIX + v for v in ('11.5.0', '11.4.2'))
 UI_EXPORT_PROFILES = frozenset((PROFILE_PREFIX + '11.6.0',))
 # Captured draft resources are reviewed per runtime in the UI, independently of export ABIs.
 RESOURCE_PROFILES = frozenset(PROFILE_PREFIX + v for v in ('11.6.0', '11.5.0', '11.4.2'))
-EDIT_PROFILES = frozenset(PROFILE_PREFIX + v for v in ('11.6.0', '11.5.0', '11.4.2', '11.4.0'))
+EDIT_PROFILES = frozenset(PROFILE_PREFIX + v for v in ('11.6.0', '11.6.0-13281', '11.5.0', '11.4.2', '11.4.0'))
 RESOURCE_CAPTURE_PROFILE = PROFILE_PREFIX + '11.4.2'
 TIMELINE_SCHEMAS = frozenset((('185.0.0', 360000), ('187.0.0', 360000), ('189.0.0', 360000)))
 # Saved formats newer than the builder's 185 are accepted only on runtimes observed reading them:
 # 11.5.0 writes 187; the M5 library only demonstrated 185 -> 189.
 SCHEMA_RUNTIMES = {'187.0.0': frozenset((PROFILE_PREFIX + '11.5.0',)),
-                   '189.0.0': frozenset((PROFILE_PREFIX + '11.6.0',))}
+                   '189.0.0': frozenset((PROFILE_PREFIX + '11.6.0', OFFICIAL_13281_PROFILE))}
 # Exact native UI save upgrades: runtime -> ({source schemas}, saved schema, stamped app version).
 SAVE_UPGRADES = {PROFILE_PREFIX + '11.5.0': (frozenset(('185.0.0',)), '187.0.0', '11.5.0'),
-                 PROFILE_PREFIX + '11.6.0': (frozenset(('185.0.0',)), '189.0.0', '11.6.0')}
+                 PROFILE_PREFIX + '11.6.0': (frozenset(('185.0.0',)), '189.0.0', '11.6.0'),
+                 OFFICIAL_13281_PROFILE: (frozenset(('185.0.0',)), '189.0.0', '11.6.0')}
 
 
 def validate_timeline_schema(timeline, runtime_profile=None):
@@ -52,17 +56,26 @@ def saved_schema_upgrade(expected, actual, runtime_profile):
     raise ValueError('Unreviewed native schema migration')
 
 
-def validate_identity(info, fingerprint):
+def identity_profile(info, fingerprint):
+    """Select one exact library identity before any capability checks."""
     version = info.get('CFBundleShortVersionString')
     if (version not in PROFILES or info.get('CFBundleVersion') != version
             or info.get('CFBundleIdentifier') != 'com.lemon.lvpro'):
         raise ValueError('Unsupported Jianying version/build/identity; stop native writes')
-    if fingerprint != PROFILES[version]:
-        raise ValueError('Editor library differs from its exact headless runtime profile; version='
-                         + version + '; actual=' + str(fingerprint) + '; expected=' + PROFILES[version]
-                         + '. Collect a redacted report with python3 tools/runtime_report.py. '
-                         'This build needs review; do not replace the expected hash.')
-    return version
+    candidates = {key: sha for key, sha in PROFILES.items() if key.split('-', 1)[0] == version}
+    for key, expected in candidates.items():
+        if fingerprint == expected:
+            return PROFILE_PREFIX + key
+    raise ValueError('Editor library differs from its exact headless runtime profile; version='
+                     + version + '; actual=' + str(fingerprint) + '; expected='
+                     + ','.join(candidates.values())
+                     + '. Collect a redacted report with python3 tools/runtime_report.py. '
+                     'This build needs review; do not replace the expected hash.')
+
+
+def validate_identity(info, fingerprint):
+    identity_profile(info, fingerprint)
+    return info['CFBundleShortVersionString']
 
 
 def validate_export_profiles(build_profile, runtime_profile):
@@ -78,22 +91,32 @@ def validate_resource_profile(runtime_profile, capture_profile):
 
 
 M5_PROFILE = PROFILE_PREFIX + '11.6.0'
+# Share the restrictive basic-draft boundary, not the advanced acceptance.
+M5_PROFILES = frozenset((M5_PROFILE, OFFICIAL_13281_PROFILE))
 M5_COMMANDS = frozenset(('doctor', 'build', 'verify-build', 'publish', 'verify', 'edit', 'ui-export'))
 
 
 def validate_command(command, runtime_profile):
-    if runtime_profile != M5_PROFILE or command not in M5_COMMANDS:
-        raise ValueError('M5 supports doctor/build/verify-build/publish/verify, edit and ui-export only')
+    if (runtime_profile not in M5_PROFILES or command not in M5_COMMANDS
+            or (runtime_profile == OFFICIAL_13281_PROFILE and command == 'ui-export')):
+        raise ValueError('M5 supports doctor/build/verify-build/publish/verify, edit and ui-export only; '
+                         'official 13281 recovery excludes ui-export')
 
 
 def validate_creation_plan(plan, runtime_profile, assets=None):
-    """Only the creation matrix exercised on the exact M5 library."""
-    if runtime_profile != M5_PROFILE:
+    """Keep basic recovery separate from the advanced M5 creation matrix."""
+    if runtime_profile not in M5_PROFILES:
         return
     if plan.get('canvas') not in ({'width': w, 'height': h, 'fps': 30}
                                   for w, h in ((1280, 720), (1920, 1080), (3840, 2160))):
         raise ValueError('M5 canvas requires 720p, 1080p or UHD4K at 30 fps')
     tracks = plan.get('tracks', [])
+    if runtime_profile == OFFICIAL_13281_PROFILE:
+        for track in tracks:
+            if track.get('type') not in {'video', 'text'} or any(
+                    set(segment) & {'font_path', 'keyframes', 'mask', 'transition_out'}
+                    for segment in track.get('segments', [])):
+                raise ValueError('Official 13281 recovery supports basic video/text drafts only')
     if not tracks or tracks[0].get('type') != 'video':
         raise ValueError('M5 requires a main H.264 video track')
     for track in tracks:

@@ -18,7 +18,7 @@ import time
 import jy14_headless as j
 import native_compound as compound
 import native_fonts as fonts
-from runtime_profiles import M5_PROFILE, EDIT_PROFILES, validate_timeline_schema, saved_schema_upgrade
+from runtime_profiles import M5_PROFILES, OFFICIAL_13281_PROFILE, EDIT_PROFILES, validate_timeline_schema, saved_schema_upgrade
 
 SCHEMA = 'jy14-edit-plan/v1'
 BUILD_SCHEMA = 'jy14-edit-build/v1'
@@ -77,7 +77,7 @@ def mirrors(folder, timeline_id):
 
 
 def validate_m5_operations(operations, runtime_profile):
-    if runtime_profile != M5_PROFILE:
+    if runtime_profile not in M5_PROFILES:
         return
     j.require(isinstance(operations, list) and operations, 'M5 edit operations are required')
     for operation in operations:
@@ -92,7 +92,7 @@ def validate_m5_operations(operations, runtime_profile):
 
 def validate_m5_source(timeline, source, runtime_profile, media_root=None):
     """Only basic single-timeline H.264/AAC and ordinary text can be copied."""
-    if runtime_profile != M5_PROFILE:
+    if runtime_profile not in M5_PROFILES:
         return
     validate_timeline_schema(timeline, runtime_profile)
     canvas = timeline.get('canvas_config', {})
@@ -582,7 +582,7 @@ def verify_build(out):
     j.require(runtime['runtime_profile'] in EDIT_PROFILES, 'No reviewed edit profile for this runtime')
     out = Path(out).resolve(strict=True)
     record = j.read_json(out / 'build.json')
-    if M5_PROFILE in (runtime['runtime_profile'], record.get('runtime_profile')):
+    if M5_PROFILES.intersection((runtime['runtime_profile'], record.get('runtime_profile'))):
         j.validate_build_runtime(record, runtime)
     j.require(record['schema'] == BUILD_SCHEMA and record['runtime_manifest'] == j.nd.MANIFEST_SHA, 'Edit build provenance differs')
     j.require(j.files_manifest(out / 'draft') == record['files'], 'Edited copy changed after build')
@@ -590,8 +590,8 @@ def verify_build(out):
               j.nd.digest(out / 'expected-timeline.json') == record['expected_timeline_sha256'], 'Edit plan/evidence changed')
     plan = j.read_json(out / 'plan.json')
     validate_m5_operations(plan.get('operations'), runtime['runtime_profile'])
-    if runtime['runtime_profile'] == M5_PROFILE:
-        validate_m5_source(j.read_json(out / 'source-timeline.json'), Path(record['source']), M5_PROFILE)
+    if runtime['runtime_profile'] in M5_PROFILES:
+        validate_m5_source(j.read_json(out / 'source-timeline.json'), Path(record['source']), runtime['runtime_profile'])
     j.require(record['target'] == str(j.nd.DRAFT_ROOT / plan['name']), 'Edit copy target mismatch')
     expected = j.read_json(out / 'expected-timeline.json')
     validate_m5_source(expected, Path(record['target']), runtime['runtime_profile'], out / 'draft')
@@ -678,7 +678,8 @@ def normalize_saved_companions(expected, actual, runtime):
 
 # Same-version re-saves observed to restamp device fields: runtime -> (schema, app version).
 SAVED_PROVENANCE = {'jy14-headless-macos-11.5.0': ('187.0.0', '11.5.0'),
-                    'jy14-headless-macos-11.6.0': ('189.0.0', '11.6.0')}
+                    'jy14-headless-macos-11.6.0': ('189.0.0', '11.6.0'),
+                    OFFICIAL_13281_PROFILE: ('189.0.0', '11.6.0')}
 
 
 def normalize_saved_provenance(before, after, runtime):
@@ -705,7 +706,8 @@ def normalize_saved_provenance(before, after, runtime):
 # 11.6 was additionally observed dropping a unit segment volume on video, photo
 # and audio segments. Runtimes outside this table keep the upstream comparison.
 NATIVE_DEFAULT_RUNTIMES = {'jy14-headless-macos-11.5.0': frozenset(),
-                           'jy14-headless-macos-11.6.0': frozenset(('volume',))}
+                           'jy14-headless-macos-11.6.0': frozenset(('volume',)),
+                           OFFICIAL_13281_PROFILE: frozenset(('volume',))}
 
 
 def compare_saved_timeline(expected, actual, runtime_profile, *, frame_tolerance=0, quantized=None):
@@ -934,15 +936,15 @@ def verify_live(out):
     j.require(runtime['runtime_profile'] in EDIT_PROFILES, 'No reviewed edit profile for this runtime')
     out = Path(out).resolve(strict=True)
     record = j.read_json(out / 'build.json')
-    if M5_PROFILE in (runtime['runtime_profile'], record.get('runtime_profile')):
+    if M5_PROFILES.intersection((runtime['runtime_profile'], record.get('runtime_profile'))):
         j.validate_build_runtime(record, runtime)
     j.require(record.get('schema') == BUILD_SCHEMA and record.get('runtime_manifest') == j.nd.MANIFEST_SHA, 'Unknown edit build')
     j.require(j.nd.digest(out / 'plan.json') == record['plan_sha256'] and
               j.nd.digest(out / 'expected-timeline.json') == record['expected_timeline_sha256'], 'Edit evidence changed')
     plan = j.read_json(out / 'plan.json')
     validate_m5_operations(plan.get('operations'), runtime['runtime_profile'])
-    if runtime['runtime_profile'] == M5_PROFILE:
-        validate_m5_source(j.read_json(out / 'source-timeline.json'), Path(record['source']), M5_PROFILE)
+    if runtime['runtime_profile'] in M5_PROFILES:
+        validate_m5_source(j.read_json(out / 'source-timeline.json'), Path(record['source']), runtime['runtime_profile'])
     font_assets = fonts.recorded_assets(record, plan)
     target = j.nd.DRAFT_ROOT / plan['name']
     j.require(str(target) == record['target'] and target.is_dir() and not target.is_symlink(), 'Invalid edit copy path')

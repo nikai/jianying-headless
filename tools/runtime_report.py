@@ -11,7 +11,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'engine'))
-from runtime_profiles import PROFILES, validate_identity
+from runtime_profiles import PROFILES, PROFILE_PREFIX, identity_profile
 
 
 def report(app):
@@ -38,7 +38,9 @@ def report(app):
                       next_step='Check the official Jianying installation; no personal paths are included.')
         return result
     try:
-        validate_identity(info, result['library_sha256'])
+        profile = identity_profile(info, result['library_sha256'])
+        result['runtime_profile'] = profile
+        result['expected_library_sha256'] = PROFILES[profile[len(PROFILE_PREFIX):]]
         result['identity_matched'] = True
     except ValueError:
         result['identity_matched'] = False
