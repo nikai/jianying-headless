@@ -29,7 +29,7 @@ import native_effects as effects
 import native_visual_effects as visual_effects
 import native_fonts as fonts
 from runtime_profiles import (validate_timeline_schema, validate_creation_plan,
-                              validate_command, M5_PROFILE)
+                              validate_command, M5_PROFILES)
 
 HERE = Path(__file__).resolve().parent
 BLUEPRINT_SHA = '91f7eddad5bff9af23eb88b53713c180e3e3d4054edd469140cfa9aa56bc1dc9'
@@ -244,7 +244,7 @@ def validate_plan(plan, runtime_profile=None):
         require(duration == main_end, 'Overlay, audio and text must fit within the main video duration')
     validate_creation_plan(plan, runtime_profile, assets.values())
     font_assets = fonts.collect_plan(plan)
-    if runtime_profile == M5_PROFILE:
+    if runtime_profile in M5_PROFILES:
         require(all(a.get('format') == 'ttf' for a in font_assets.values()),
                 'M5 local fonts require parsed static TTF format')
         for track in plan['tracks']:
@@ -564,7 +564,7 @@ def verify_structure(timeline, metadata, plan, assets, target, allow_native_reso
                      runtime_profile=None, font_assets=()):
     validate_timeline_schema(timeline, runtime_profile)
     validate_creation_plan(plan, runtime_profile, assets)
-    if runtime_profile == M5_PROFILE:
+    if runtime_profile in M5_PROFILES:
         require(all(a.get('format') == 'ttf' for a in font_assets),
                 'M5 local fonts require parsed static TTF format')
         validate_m5_materials(timeline, plan, target)
@@ -650,7 +650,7 @@ def verify_structure(timeline, metadata, plan, assets, target, allow_native_reso
                 asset = next(a for a in assets if a['source'] == str(Path(spec['source']).resolve()))
                 if wanted['type'] == 'video':
                     require(material['type'] == asset.get('media_type', 'video'), 'Visual media type changed')
-                    if runtime_profile == M5_PROFILE:
+                    if runtime_profile in M5_PROFILES:
                         require((material.get('width'), material.get('height')) == (asset['width'], asset['height'])
                                 and material.get('has_audio', True) is True, 'M5 native media dimensions/audio changed')
                 require(native_media_path(material['path'], target) ==
@@ -684,7 +684,7 @@ def validate_build_runtime(record, runtime):
 
 
 def verified_plan_assets(plan, recorded, runtime_profile):
-    if runtime_profile != M5_PROFILE:
+    if runtime_profile not in M5_PROFILES:
         return recorded
     probed, _, _ = validate_plan(plan, runtime_profile)
     verified = []

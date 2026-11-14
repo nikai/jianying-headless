@@ -14,7 +14,7 @@ import shutil
 import subprocess
 import sys
 from types import SimpleNamespace
-from runtime_profiles import PROFILES, PRIMARY_VERSION, validate_identity
+from runtime_profiles import PROFILES, PRIMARY_VERSION, identity_profile
 
 APP = Path('/Applications/VideoFusion-macOS.app')
 DRAFT_ROOT = Path.home() / 'Movies/JianyingPro/User Data/Projects/com.lveditor.draft'
@@ -63,13 +63,14 @@ def doctor():
     info = plistlib.loads((APP / 'Contents/Info.plist').read_bytes())
     library = APP / 'Contents/Frameworks/libvideoeditor.dylib'
     fingerprint = digest(library)
-    version = validate_identity(info, fingerprint)
+    profile = identity_profile(info, fingerprint)
+    version = info['CFBundleShortVersionString']
     if not all(shutil.which(name) for name in ('ffmpeg', 'ffprobe')):
         raise ValueError('ffmpeg and ffprobe are required')
     return {'status': 'ok', 'app_version': version, 'app_build': version,
             'primary_version': PRIMARY_VERSION, 'compatibility_mode': version != PRIMARY_VERSION,
             'bundle_id': BUNDLE_ID, 'libvideoeditor_sha256': fingerprint,
-            'runtime_profile': 'jy14-headless-macos-' + version,
+            'runtime_profile': profile,
             'codec_sha256': PINS['jy14_codec_hardened_11_4'],
             'runtime_hashes_verified': True, 'network_called': False,
             'full_signature_check': 'required before live creation'}

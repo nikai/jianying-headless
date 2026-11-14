@@ -2,7 +2,8 @@
 
 此 fork（[nikai/jianying-headless](https://github.com/nikai/jianying-headless)）保留
 [mcncarl/jianying-headless](https://github.com/mcncarl/jianying-headless) 的原许可证，
-只从正式入口开放当前精确 M5 库已实测的能力。
+按精确库身份分别开放正式入口能力。以下高级能力属于 `1748fa32…`；
+官方 13281 / `a490d9a0…` 的恢复范围仅为基础视频、普通字幕和受限编辑，详见下文。
 
 - 新建：720p / 1080p / UHD4K、30 fps，一条连续主视频轨可多段，普通字幕轨；
   输入为同尺寸同帧率 H.264/yuv420p，内嵌 AAC，保持 1×。
@@ -16,7 +17,7 @@
 
 命令为 `doctor/build/verify-build/publish/verify`、`edit`、`ui-export`；完整参数用 `--help`。
 `publish` 仅登记本机首页，不上传网络，须先保存工作并正常退出剪映。
-后台 native ExportService 仍关闭：未修改 helper 对当前库实际返回 ABI 不匹配。
+后台 native ExportService 仍关闭；10-22 对 `1748fa32…` 的未修改 helper 实测返回 ABI 不匹配。
 HEVC、照片/GIF、变速、未测画布/帧率、无音轨、非 AAC、字体动画、复合片段与 Windows
 均不从正式入口开放。旧 profile 的历史代码不构成当前能力许可。
 
@@ -35,7 +36,14 @@ HEVC、照片/GIF、变速、未测画布/帧率、无音轨、非 AAC、字体�
   linker 27037.1；最低二进制系统版本 26.0 不代表已验收其他系统。
 - 精确配置与构建哈希分别见 `engine/runtime_profiles.py`、`bridge/SOURCE_MANIFEST.json`。
 
-旧 11.6 官方 build 13281 / 库 `a490d9a0…` 的验收不适用于此库，旧指纹会被拒绝。
+官方 11.6 build 13281 的库
+`a490d9a08b71a2d9af138d24528d3d40d65b37b06911627c53a2915c6cac0754`
+使用独立 profile `jy14-headless-macos-11.6.0-13281`；bundle 版本/build 仍须均为 `11.6.0`。
+它只开放基础五命令和受限 `edit`，沿用上面的 H.264/AAC、画布/帧率、1× 和普通文字限制，
+支持 `185`→`189` 保存回读。独立音频、显式字体、关键帧、蒙版、转场、效果、
+`ui-export` 和后台原生导出均不因身份恢复而开放；`187` 来源仍拒绝。
+10 月历史 UI/编辑验收见 [验证状态](docs/VERIFICATION.md)，本次真实草稿/UI 复验待宿主完成。
+两个库的 build 不互用；保留 `1748fa32…` 的原能力范围，不按版本前缀放行。
 源码保留的 11.5 / 11.4 历史配置不构成本次 M5 的兼容承诺。
 不替换官方程序库，不修改账号权益，不以修改固定哈希跳过不匹配。
 

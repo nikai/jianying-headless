@@ -15,7 +15,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'engine'))
-from runtime_profiles import PROFILES, validate_identity
+from runtime_profiles import validate_identity
 from build_toolchain import select_toolchain, compile_command
 BRIDGE = ROOT / 'bridge'
 APP = Path('/Applications/VideoFusion-macOS.app')
@@ -68,7 +68,8 @@ def main(argv=None):
 
     info = plistlib.loads((APP / 'Contents/Info.plist').read_bytes())
     library = APP / 'Contents/Frameworks/libvideoeditor.dylib'
-    version = validate_identity(info, digest(library))
+    fingerprint = digest(library)
+    version = validate_identity(info, fingerprint)
     env = {'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'LC_ALL': 'C'}
     run(['/usr/bin/codesign', '--verify', '--deep', '--strict', str(APP)], env=env)
     signature = run(['/usr/bin/codesign', '-dv', '--verbose=4', str(APP)], env=env)
@@ -107,7 +108,7 @@ def main(argv=None):
         stream.write('\n')
     require(actual == EXPECTED_CODEC_SHA,
             'Compiler output differs from the reviewed codec. No runtime pin was changed; inspect ' + str(job))
-    require(digest(library) == PROFILES[version], 'The native library changed while compiling')
+    require(digest(library) == fingerprint, 'The native library changed while compiling')
     for name, expected in manifest['source_files'].items():
         require(digest(BRIDGE / name) == expected, 'Bridge source changed while compiling: ' + name)
     run(['/usr/bin/codesign', '--verify', '--strict', str(built)], env=env)

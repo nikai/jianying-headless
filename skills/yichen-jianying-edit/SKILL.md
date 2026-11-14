@@ -8,7 +8,9 @@ description: 在精确匹配的 M5 剪映环境新建视频字幕与已验高级
 1. 按 [安装说明](README.md) 定位核心项目。默认源码为
    `~/repos/third-party/jianying-headless`，同仓入口自动定位；其他位置用
    `JIANYING_HEADLESS_ROOT=/absolute/path/to/checkout` 明确指定，失效即停。
-2. 用 `scripts/headless_draft.py doctor` 核对 11.6.0 / `1748fa32…` 精确库和 codec。
+2. 用 `scripts/headless_draft.py doctor` 核对精确库和 codec，并按返回的 `runtime_profile` 选流程。
+   `jy14-headless-macos-11.6.0-13281` / `a490d9a0…` 仅支持基础视频、普通字幕和受限编辑。
+   高级项和 `ui-export` 仅适用于 `jy14-headless-macos-11.6.0` / `1748fa32…`。
    完整签名仍由真实写入与 UI 导出验收校验；不修改固定 SHA 或用旧库结论替代。
 3. 新建时读 [流程](references/headless-macos.md) 和 [计划格式](references/plan-format.md)，
    在新 `work/` 目录 `build` → `verify-build`。素材和输出范围以计划格式为准。
