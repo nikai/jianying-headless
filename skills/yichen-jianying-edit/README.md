@@ -1,10 +1,10 @@
 # yichen-jianying-edit · M5 本地安装
 
-本 Skill 是固定哈希入口和操作说明，核心代码由
-[nikai/jianying-headless](https://github.com/nikai/jianying-headless) fork 提供。
+本 Skill 随 Joker 维护的 [nikai/jianying-headless](https://github.com/nikai/jianying-headless)
+源码提供，包含固定哈希入口和操作说明。
 不复制官方程序库，不包含完整引擎。
 
-1. 将已授权 fork 检出到 `~/repos/third-party/jianying-headless`，保留已有目录。
+1. 将源码检出到 `~/repos/jianying-headless`；已有检出直接使用。
 2. 在核心目录运行 `python3 tools/build_native_codec.py`，精确工具链见核心 README。
 3. 安装完整 Skill 目录，不只复制 `SKILL.md`；安装与注册由宿主执行。
 4. 独立入口默认找上述标准目录，同仓入口自动定位，不依赖 GUI 继承 shell 环境。

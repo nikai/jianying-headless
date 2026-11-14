@@ -1,8 +1,8 @@
 # Jianying Headless · M5 本地适配
 
-此 fork（[nikai/jianying-headless](https://github.com/nikai/jianying-headless)）保留
-[mcncarl/jianying-headless](https://github.com/mcncarl/jianying-headless) 的原许可证，
-按精确库身份分别开放正式入口能力。以下高级能力属于 `1748fa32…`；
+Joker 维护的 [nikai/jianying-headless](https://github.com/nikai/jianying-headless)
+源自 [mcncarl/jianying-headless](https://github.com/mcncarl/jianying-headless)，保留上游原许可证。
+正式入口按精确库身份开放相应能力。以下高级能力属于 `1748fa32…`；
 官方 13281 / `a490d9a0…` 的恢复范围仅为基础视频、普通字幕和受限编辑，详见下文。
 
 - 新建：720p / 1080p / UHD4K、30 fps，一条连续主视频轨可多段，普通字幕轨；
@@ -49,11 +49,11 @@ HEVC、照片/GIF、变速、未测画布/帧率、无音轨、非 AAC、字体�
 
 ## 开始使用
 
-已授权源码位置为 `~/repos/third-party/jianying-headless`；如果目录已有检出，直接使用，
+默认源码位置为 `~/repos/jianying-headless`；如果目录已有检出，直接使用，
 不要覆盖。首次安装按 [入门说明](docs/GETTING-STARTED.md) 操作。
 
 ```bash
-cd ~/repos/third-party/jianying-headless
+cd ~/repos/jianying-headless
 python3 tools/build_native_codec.py --check-toolchain
 python3 tools/build_native_codec.py
 python3 skills/yichen-jianying-edit/scripts/headless_draft.py doctor
@@ -79,7 +79,7 @@ python3 skills/yichen-jianying-edit/scripts/headless_draft.py verify --build "$P
 ## 独立 Skill
 
 见 [安装说明](skills/yichen-jianying-edit/README.md)。同仓入口自动定位；
-独立安装默认找 `~/repos/third-party/jianying-headless`，不用 GUI 继承终端环境变量。
+独立安装默认找 `~/repos/jianying-headless`，不用 GUI 继承终端环境变量。
 其他位置用 `JIANYING_HEADLESS_ROOT=/absolute/path/to/checkout` 显式覆盖；覆盖无效即失败。
 Skill 与核心源码必须匹配固定哈希。
 

@@ -53,7 +53,7 @@ class PackagingTests(unittest.TestCase):
             entry = external / 'standalone.py'
             shutil.copyfile(ENTRY, entry)
             home = external / 'home'
-            checkout = home / 'repos/third-party/jianying-headless'
+            checkout = home / 'repos/jianying-headless'
             checkout.mkdir(parents=True)
             shutil.copyfile(ROOT / 'project.json', checkout / 'project.json')
             shutil.copytree(ROOT / 'engine', checkout / 'engine', ignore=shutil.ignore_patterns('__pycache__'))
