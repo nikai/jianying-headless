@@ -15,7 +15,7 @@ def project_root():
             raise SystemExit('JIANYING_HEADLESS_ROOT must be an absolute checkout path')
         candidates = [path.resolve()]
     else:
-        candidates = list(Path(__file__).resolve().parents) + [Path.home() / 'repos/third-party/jianying-headless']
+        candidates = list(Path(__file__).resolve().parents) + [Path.home() / 'repos/jianying-headless']
     for path in candidates:
         marker = path / 'project.json'
         if marker.is_file() and not marker.is_symlink():
@@ -26,7 +26,7 @@ def project_root():
             if identity.get('id') == 'jianying-headless' and identity.get('schema') == 'jianying-headless-project/v1':
                 return path
     raise SystemExit('Jianying Headless checkout unavailable. Clone the project with authorized GitHub access, '
-                     'at ~/repos/third-party/jianying-headless, or set JIANYING_HEADLESS_ROOT to an absolute path. '
+                     'at ~/repos/jianying-headless, or set JIANYING_HEADLESS_ROOT to an absolute path. '
                      'The Skill alone does not include the engine.')
 
 

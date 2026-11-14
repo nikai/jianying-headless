@@ -6,13 +6,13 @@
 
 ## 源码和工具
 
-源码默认放在 `~/repos/third-party/jianying-headless`。以下安装命令只用于该目录不存在时；
+源码默认放在 `~/repos/jianying-headless`。以下安装命令只用于该目录不存在时；
 已有目录直接进入，不删除、不覆盖。
 
 ```bash
-mkdir -p ~/repos/third-party
-git clone https://github.com/nikai/jianying-headless.git ~/repos/third-party/jianying-headless
-cd ~/repos/third-party/jianying-headless
+mkdir -p ~/repos
+git clone https://github.com/nikai/jianying-headless.git ~/repos/jianying-headless
+cd ~/repos/jianying-headless
 ```
 
 需要 Python 3.9+ 和 FFmpeg / ffprobe；基础草稿无需 pip 依赖、API Key 或付费 ASR。
